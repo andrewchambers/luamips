@@ -11,7 +11,7 @@ class LuaGen(CodeGenerator):
         print self.ws + "end"
     
     def startSwitch(self,switch):
-        print self.ws + "v = bit.band(op,%s)" % hex(int(switch,2))
+        print self.ws + "v = band(op,%s)" % hex(int(switch,2))
         
     def genCase(self,name,value):
         self.depth -= 1

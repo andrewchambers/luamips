@@ -28,6 +28,8 @@ function test_memory()
 	assert(mips:readb(testbase + 1) == 0x22)
 	assert(mips:readb(testbase + 2) == 0x33)
 	assert(mips:readb(testbase +3) == 0x44)
+	
+	assert(mips:read(testbase + 4) == 0)
 
 	mips:writeb(testbase + 0,0x44)
 	mips:writeb(testbase + 1,0x33)
@@ -38,10 +40,83 @@ function test_memory()
 
 end
 
+function test_bwise()
+	print("running bwise tests")
+	assert(lshift(0xff,24) == 0xff000000)
+	assert(rshift(0xff000000,24) == 0xff)
+	assert(rshift(1,1) == 0)
+	
+	assert(bor(0xffffffff,0) == 0xffffffff)
+	assert(bor(0xffff0000,0) == 0xffff0000)
+	assert(bor(0xffff0000,0xffffffff) == 0xffffffff)
+	assert(bor(0xf0f0f0f0,0x0f0f0f0f) == 0xffffffff)
+	
+	assert(band(0xffffffff,0) == 0x0)
+	assert(band(0xffff0000,0) == 0x0)
+	assert(band(0xffff0000,0xffffffff) == 0xffff0000)
+	assert(band(0xf0f0f0f0,0x0f0f0f0f) == 0x0)
+	assert(band(0xf0f0f0f0,0xf0f0f0f0) ==0xf0f0f0f0)
+	
+	assert(bxor(0xffffffff,0) == 0xffffffff)
+	assert(bxor(0xffff0000,0) == 0xffff0000)
+	assert(bxor(0xffff0000,0xffffffff) == 0x0000ffff)
+	assert(bxor(0xf0f0f0f0,0x0f0f0f0f) == 0xffffffff)
+	assert(bxor(0xf0f0f0f0,0xf0f0f0f0) ==0x0)
+	
+	assert(bnot(0xffffffff) == 0)
+	assert(bnot(0) == 0xffffffff)
+	assert(bnot(0xf0f0f0f0) == 0x0f0f0f0f)
+	
+		
+	assert(sext18(0x3ffff) == 0xffffffff)
+	
+	assert(sext16(0xffff) == 0xffffffff)
+	assert(sext16(0xf0f0) == 0xfffff0f0)
+	assert(sext16(0) == 0x0)
+	assert(sext16(0xff) == 0xff)
+	
+	assert(sext8(0xff) == 0xffffffff)
+	assert(sext8(0xf0) == 0xfffffff0)
+	assert(sext8(0) == 0x0)
+	assert(sext8(0x0f) == 0x0f)
+	
+	assert(signed(0xffffffff) == -1)
+	assert(signed(0xfffffffe) == -2)
+	assert(signed(0x80000000) == -2147483648)
+	assert(signed(0x7fffffff) == 2147483647)
+	assert(signed(0x0fffffff) == 0x0fffffff)
+
+end
+
+function testDeviceMap()
+	local emu = Mips.Create(1024*1024*32)
+	
+	
+	emu:write(0xa0000000,0xffffffff)
+	emu:write(0xa0000004,0xffffffff)
+	
+	assert(emu:read(0xa0000000) == 0xffffffff)
+	assert(emu:readb(0xa0000000) == 0xff)
+	assert(emu:read(0xa0000004) == 0xffffffff)
+	assert(emu:readb(0xa0000004) == 0xff)
+	
+	meminfo = MemoryInfo.Create(emu)
+	
+	emu:addDevice(0,4,meminfo)
+	
+	assert(meminfo:read(0) == 1024*1024*32)
+	assert(emu:read(0xa0000000) == 1024*1024*32)
+	assert(emu:readb(0xa0000000) == 0)
+	assert(emu:read(0xa0000004) == 0xffffffff)
+	assert(emu:readb(0xa0000004) == 0xff)
+	
+end
 
 
 function test()
 	test_memory()
+	test_bwise()
+	testDeviceMap()
 end
 
 
@@ -76,6 +151,8 @@ function loadSrec(emu,fname)
 				for i=0,count-addrlen-2 do
 					local b = string.sub(line,datastart + i*2, datastart + i*2 + 1)
 					emu:writeb(addr+i,tonumber(b,16))
+					assert(emu:read((addr+i) - (addr+i) % 4) >= 0)
+					assert(emu:read((addr+i) - (addr+i) % 4) <= 0xffffffff)
 				end
 
             end
@@ -94,15 +171,21 @@ end
 
 
 
+
 function main()
 	print "running tests"
 	test()
 	print "loading srec"
 	local emu = Mips.Create(1024*1024*32)
-	loadSrec(emu,"kernel.srec")
+	emu:addDevice(0x10000000,4,DebugSerial.Create())
+	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
+	loadSrec(emu,"./testkernel/kern.srec")
 	print "launching emulator..."
 	while true do
 		emu:step()
+		--print(string.format("%08x",emu.pc))
+		--emu:dumpState()
+		--io.read()
 	end
 end
 

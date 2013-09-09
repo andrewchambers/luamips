@@ -2,6 +2,7 @@ import sys
 import re
 
 #remaps errors in emu.lua to the original source file
+#pipe in error output from emu.lua. needs to be able to read emu.lua
 
 
 def repl(m):
