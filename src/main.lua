@@ -85,6 +85,26 @@ function test_bwise()
 	assert(signed(0x80000000) == -2147483648)
 	assert(signed(0x7fffffff) == 2147483647)
 	assert(signed(0x0fffffff) == 0x0fffffff)
+    
+    
+    local hi
+    local lo
+    
+    hi,lo = karatsuba(0x1,0xffffffff,false)
+    assert(hi == 0)
+    assert(lo == 0xffffffff)
+    
+    hi,lo = karatsuba(0x1,0xffffffff,true)
+    assert(hi == 0xffffffff)
+    assert(lo == 0xffffffff)
+    
+    hi,lo = karatsuba(0x11223344,0xffffffff,false)
+    assert(hi == 0x11223343)
+    assert(lo == 0xeeddccbc)
+
+    hi,lo = karatsuba(0x11223344,0xffffffff,true)
+    assert(hi == 0xffffffff)
+    assert(lo == 0xeeddccbc)        
 
 end
 
@@ -176,7 +196,7 @@ function main()
 	print "running tests"
 	test()
 	print "loading srec"
-	local emu = Mips.Create(1024*1024*32)
+	local emu = Mips.Create(1024*1024*64)
 	emu:addDevice(0x10000000,4,DebugSerial.Create())
 	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
 	loadSrec(emu,"./testkernel/kern.srec")

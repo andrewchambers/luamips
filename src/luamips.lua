@@ -90,6 +90,60 @@ function signed(val)
 	return val
 end
 
+function karatsuba(a,b,signed)
+    -- karatsuba algorithm for multiplying
+    -- this is done so we dont lose precision in 64 bit mult
+    local number1 = a
+    local number2 = b
+    
+    local n1sign = band(a,0x80000000) > 0
+    local n2sign = band(b,0x80000000) > 0
+    
+    if signed then
+        -- first do the multiply as if we are unsigned
+        -- we will add the sign back later
+        if n1sign then
+            number1 = (bnot(a) + 1) % 0x100000000 
+        end
+        
+        if n2sign then
+            number2 = (bnot(b) + 1) % 0x100000000
+        end
+        
+    end
+
+    local number1Hi = rshift(number1,16)
+    local number1Lo = band(number1,0xffff)
+    local number2Hi = rshift(number2,16)
+    local number2Lo = band(number2,0xffff)
+    local z2 = (number1Hi * number2Hi)
+    local z1 = (number1Hi * number2Lo) + (number1Lo * number2Hi)
+    local z0 = (number1Lo * number2Lo)
+    local result = (z2*4294967296 + z1*65536 + z0)
+    local t1 = (z1*65536 + z0)
+    local hi = z2 + ((t1-t1%4294967296) / 4294967296)
+    local lo = (z1*65536 + z0) % 0x100000000
+    
+    
+    -- not (n1sign xor n2sign)
+    if signed and not ( (n1sign and n2sign) or (not (n1sign or n2sign) ) ) then
+        --we must make hi and lo negative
+        --do a twos compliment
+        lo = bnot(lo)
+        hi = bnot(hi)
+        lo = lo + 1
+        if lo > 0xffffffff then
+            lo = 0
+            hi = hi + 1
+            if hi > 0xffffffff then
+                hi = 0
+            end
+        end
+    end
+    
+    return hi,lo
+end
+
 
 function Mips.Create(size)
 	local mips = {}
@@ -100,7 +154,9 @@ function Mips.Create(size)
 	assert(size%4 == 0)
 	mips.pc = 0
 	mips.inDelaySlot = false
-	mips.regs = {}
+	mips.hi = 0
+    mips.lo = 0
+    mips.regs = {}
 	mips.devices = {}
 
 	for i = 0,32 do
@@ -247,7 +303,8 @@ end
 
 function Mips:write(addr,val)
 	if addr % 4 ~= 0 then
-		error("writing unaligned address")
+        self:dumpState()
+		error("writing unaligned address " .. string.format("%08x",addr))
 	end
 	addr = self:translateAddr(addr)
 	
@@ -282,10 +339,7 @@ function Mips:step()
     else
         self.pc = self.pc + 4
     end
-    
 end
-
-
 
 function Mips:setRt(op,val)
 	local idx = rshift(band(op,0x1f0000),16)
@@ -324,9 +378,8 @@ function Mips:op_lui(op)
 	self:setRt(op,v)
 end
 
-function Mips:op_lw(op)
-	local addr = (self:getRs(op) + self:getImm(op)) % 0x100000000
-	local v = self:read(addr)
+function Mips:op_addi(op)
+	local v = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	self:setRt(op,v)
 end
 
@@ -335,18 +388,37 @@ function Mips:op_ori(op)
 	self:setRt(op,v)
 end
 
-function Mips:op_sll(op)
-	local v = lshift(self:getRt(op),self:getShamt(op))
-	self:setRd(op,v)
+function Mips:op_xori(op)
+	local v = bxor(self:getRs(op),self:getImm(op))
+	self:setRt(op,v)
 end
+
+function Mips:op_andi(op)
+	local v = band(self:getRs(op),self:getImm(op))
+	self:setRt(op,v)
+end
+
+function Mips:op_or(op)
+	self:setRd(op,bor(self:getRs(op),self:getRt(op)))
+end
+
+function Mips:op_xor(op)
+	self:setRd(op,bxor(self:getRs(op),self:getRt(op)))
+end
+
 
 function Mips:op_addiu(op)
 	local v = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
-	self:setRt(op,v)
+    self:setRt(op,v)
 end
 
 function Mips:op_addu(op)
 	self:setRd(op,(self:getRs(op) + self:getRt(op)) % 0x100000000 )
+end
+
+function Mips:op_subu(op)
+	local v = bnot(self:getRt(op)) + 1 % 0x100000000
+    self:setRd(op,(self:getRs(op) + v) % 0x100000000 )
 end
 
 function Mips:op_add(op)
@@ -365,15 +437,22 @@ function Mips:op_sw(op)
 	self:write(addr,self:getRt(op))
 end
 
+
+function Mips:op_lw(op)
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
+	local v = self:read(addr)
+	self:setRt(op,v)
+end
+
 function Mips:op_lb(op)
-	local addr = (self:getRs(op) + self:getImm(op)) % 0x100000000
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:readb(addr)
 	v = sext8(v)
 	self:setRt(op,v)
 end
 
 function Mips:op_lbu(op)
-	local addr = (self:getRs(op) + self:getImm(op)) % 0x100000000
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:readb(addr)
 	self:setRt(op,v)
 end
@@ -393,7 +472,7 @@ end
 function Mips:op_bne(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if self:getRs(op) ~= self:getRt(op) then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.pc = (self.pc + 4 + offset) % 0x100000000
 	else
 		self.pc = self.pc + 8
 	end
@@ -424,3 +503,124 @@ function Mips:op_jr(op)
 	self.inDelaySlot = true
 end
 
+
+function Mips:op_sll(op)
+	local v = lshift(self:getRt(op),self:getShamt(op))
+	self:setRd(op,v)
+end
+
+
+function Mips:op_srl(op)
+	local v = rshift(self:getRt(op),self:getShamt(op))
+	self:setRd(op,v)
+end
+
+function Mips:op_srlv(op)
+    self:setRd(op,rshift(self:getRt(op),band(self:getRs(op),0x1f)))
+end
+
+function Mips:op_sllv(op)
+    self:setRd(op,lshift(self:getRt(op),band(self:getRs(op),0x1f)))
+end
+
+function Mips:op_slti(op)
+    local rs = self:getRs(op);
+    local c = self:getImm(op);
+    if signed(rs) < signed(sext16(c)) then
+        self:setRt(op,1)
+    else
+        self:setRt(op,0)
+    end
+end
+
+function Mips:op_sltiu(op)
+    local rs = self:getRs(op);
+    local c = self:getImm(op);
+    if rs < sext16(c) then
+        self:setRt(op,1)
+    else
+        self:setRt(op,0)
+    end
+end
+
+function Mips:op_sltu(op)
+    local rs = self:getRs(op);
+    local rt = self:getRt(op);
+    if rs < rt then
+        self:setRd(op,1)
+    else
+        self:setRd(op,0)
+    end
+end
+
+function Mips:op_slt(op)
+    local rs = self:getRs(op);
+    local rt = self:getRt(op);
+    if signed(rs) < signed(rt) then
+        self:setRd(op,1)
+    else
+        self:setRd(op,0)
+    end
+end
+
+function Mips:op_div(op)
+    local rs = self:getRs(op)
+    local rt = self:getRt(op)
+    
+    if rt == 0 then
+        return
+    end
+    
+    local n1sign = band(rs,0x80000000) > 0
+    local n2sign = band(rt,0x80000000) > 0
+    
+    if signed then
+        -- first do the divide as if we are unsigned
+        -- we will add the sign back to the results
+        if n1sign then
+            rs = (bnot(rs) + 1) % 0x100000000 
+        end
+        
+        if n2sign then
+            rt = (bnot(rt) + 1) % 0x100000000
+        end
+        
+    end
+    
+    self.hi = rs % rt
+    self.lo = (rs - self.hi) / rt
+    
+    --twos compliment them, the result must be signed
+    if not ( (n1sign and n2sign) or (not (n1sign or n2sign) ) ) then
+        self.lo = (bnot(self.lo) + 1) % 0x100000000 
+    end
+    
+    -- the rem takes the sign of the divisor
+    if n2sign then
+        self.hi = (bnot(self.hi) + 1) % 0x100000000 
+    end
+    
+end
+
+function Mips:op_divu(op)
+    local rs = self:getRs(op)
+    local rt = self:getRt(op)
+    if rt == 0 then
+        return
+    end
+    self.hi = rs % rt
+    self.lo = (rs - self.hi) / rt
+end
+
+function Mips:op_mult(op)
+    -- XXX consider evaling HI and LO lazily, and in seperate parts
+    self.hi,self.lo = karatsuba(self:getRs(op),self:getRt(op),true)
+end
+
+function Mips:op_mfhi(op)
+    self:setRd(op,self.hi)
+end
+
+function Mips:op_mflo(op)
+    self:setRd(op,self.lo)
+end

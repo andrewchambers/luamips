@@ -100,6 +100,10 @@
       "000000xxxxxxxxxxxxxxxxxxxx100110"
    ],
    [
+      "xori",
+      "001110xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
       "or",
       "000000xxxxxxxxxxxxxxxxxxxx100101"
    ],
@@ -138,6 +142,14 @@
    [
       "srl",
       "000000xxxxxxxxxxxxxxxxxxxx000010"
+   ],
+   [
+      "srlv",
+      "000000xxxxxxxxxxxxxxxxxxxx000110"
+   ],
+   [
+      "sllv",
+      "000000xxxxxxxxxxxxxxxxxxxx000100"
    ],
    [
       "sra",
