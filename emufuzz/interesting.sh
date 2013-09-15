@@ -1,16 +1,18 @@
+#! /bin/bash
+
 set -e
 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-rm -f ./hash1.out ./hash2.out ./kern.srec ./kern
-mips-baremetal-elf-gcc -mno-plt -DCSMITH_MINIMAL -DNO_PRINTF -I`pwd`/csmith_headers/ -nostartfiles plat.c support.c start.S rand_prog.c -o kern
+mips-baremetal-elf-gcc -mno-plt -DCSMITH_MINIMAL -DNO_PRINTF -I$DIR/csmith_headers/ -nostartfiles $DIR/plat.c $DIR/support.c $DIR/start.S rand_prog.c -o kern
 mips-baremetal-elf-objcopy -Osrec kern kern.srec
-timeout --foreground 2s qemu-system-mips -machine mips  -cpu 4kc -kernel kern -nographic > ./hash1.out
+echo "" | timeout 2s qemu-system-mips -machine mips  -cpu 4kc -kernel kern -nographic -serial file:hash1.out
 grep "checksum =" ./hash1.out 
 
 set +e
 
-#this is gonna be alot slower. lets say 100 times threshold
-timeout 200s lua ../emu.lua ./kern.srec > hash2.out
+#this is gonna be alot slower.
+timeout 60s luajit $DIR/../emu.lua ./kern.srec > hash2.out
 
 if [ $? -ne 0  ] ; then
     echo "interesting! - timeout or error"

@@ -409,6 +409,10 @@ function Mips:op_or(op)
 	self:setRd(op,bor(self:getRs(op),self:getRt(op)))
 end
 
+function Mips:op_nor(op)
+	self:setRd(op,bnot(bor(self:getRs(op),self:getRt(op))))
+end
+
 function Mips:op_xor(op)
 	self:setRd(op,bxor(self:getRs(op),self:getRt(op)))
 end
@@ -519,6 +523,17 @@ end
 
 function Mips:op_srl(op)
 	local v = rshift(self:getRt(op),self:getShamt(op))
+	self:setRd(op,v)
+end
+
+function Mips:op_sra(op)
+	local rt = self:getRt(op)
+	local sa = self:getShamt(op)
+	local signed = band(rt,0x80000000) > 0
+	local v = rshift(rt,sa)
+	if signed then
+		v = bor(bnot(rshift(0xffffffff,sa)),v)
+	end
 	self:setRd(op,v)
 end
 
