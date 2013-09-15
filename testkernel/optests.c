@@ -267,12 +267,12 @@ void test_div() {
     asm("div %2,%3\n mflo %0\n mfhi %1\n" \
     : "=r" (a) , "=r" (b) \
     : "r" (a) , "r" (b) );\
-     if(a != ans || b != rem ){ FAIL; while(1); }
+     if(a != ans || b != rem ){ FAIL; outn(a); outs(""); outn(b); }
     DIV_TEST(0x1,0x1,1,0);
     DIV_TEST(5,2,2,1);
-    DIV_TEST(-5,2,-2,1);
+    DIV_TEST(-5,2,-2,-1);
     DIV_TEST(-5,-2,2,-1);
-    DIV_TEST(5,-2,-2,-1);
+    DIV_TEST(5,-2,-2,1);
     DIV_TEST(50,-1,-50,0);
     DIV_TEST(100,2,50,0);
     #undef DIV_TEST
@@ -286,7 +286,7 @@ void test_divu() {
     asm("divu %2,%3\n mflo %0\n mfhi %1\n" \
     : "=r" (a) , "=r" (b) \
     : "r" (a) , "r" (b) );\
-     if(a != ans || b != rem ){ FAIL; while(1); }
+     if(a != ans || b != rem ){ FAIL; }
     DIVU_TEST(0x1,0x1,1,0);
     DIVU_TEST(5,2,2,1);
     DIVU_TEST(0xffffffff,1,0xffffffff,0);

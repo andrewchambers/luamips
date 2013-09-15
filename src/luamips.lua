@@ -228,9 +228,16 @@ function Mips:matchDevice(addr)
 end
 
 
-function Mips:translateAddr(addr)
-	local paddr = addr - 0xa0000000
-	return paddr
+function Mips:translateAddr(addr)	
+    if addr >= 0x80000000 and addr < 0xa0000000 then 
+    	return addr - 0x80000000
+    end
+
+    if addr >= 0xa0000000 and addr < 0xc0000000 then 
+    	return addr - 0xa0000000
+    end
+
+    return addr
 end
 
 function Mips:readb(addr)
@@ -596,7 +603,7 @@ function Mips:op_div(op)
     end
     
     -- the rem takes the sign of the divisor
-    if n2sign then
+    if n1sign then
         self.hi = (bnot(self.hi) + 1) % 0x100000000 
     end
     

@@ -1,19 +1,18 @@
 
-#ifndef DEBUG_SERIAL 
-
 #define UART_LSR 5 /* In:  Line Status Register */
-#define UART_LSR_THRE 0x2 /* Transmit-hold-register empty */
-#define PORT(offset) (0x1f000900 + (offset))
+#define UART_LSR_THRE 0x20 /* Transmit-hold-register empty */
+#define PORT(offset) (0xa0000000 + 0x14000000 + 0x3f8 + (offset))
 #define UART_TX         0       /* Out: Transmit buffer */
+
 
 static inline void serial_out(int offset, int value)
 {
-	*(volatile int*)(PORT(offset)) = value;
+	*(volatile unsigned char*)(PORT(offset)) = value;
 }
 
 static inline unsigned int serial_in(int offset)
 {
-	return *(volatile int*)(PORT(offset));
+	return (unsigned int)(*(volatile unsigned char*)(PORT(offset)));
 }
 
 int putb(char c)
@@ -25,19 +24,6 @@ int putb(char c)
 
 	return 1;
 }
-
-
-#else
-
-#define DEBUGOUTADDR 0xB0000000
-void putb(char b) {
-	while(*((char*)(DEBUGOUTADDR)) == 0)
-		/* wait for ready */
-		;
-	*((char*)(DEBUGOUTADDR)) = b;
-}
-
-#endif
 
 void outs(const char * s) {
 	while(*s){

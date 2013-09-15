@@ -11,7 +11,6 @@ do
 	
 	if bash interesting.sh ; then
 		echo "found interesting file..."
-		cat ./hash.out
 		exit 0
 	fi
 done

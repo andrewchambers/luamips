@@ -41,7 +41,6 @@ function test_memory()
 end
 
 function test_bwise()
-	print("running bwise tests")
 	assert(lshift(0xff,24) == 0xff000000)
 	assert(rshift(0xff000000,24) == 0xff)
 	assert(rshift(1,1) == 0)
@@ -181,7 +180,7 @@ function loadSrec(emu,fname)
 				count = tonumber(string.sub(line,3,4),16)
 				addrlen = lentab[t]
 				addr = string.sub(line,5,5+(addrlen*2) - 1)
-				print("setting pc:",addr)
+				--print("setting pc:",addr)
 				emu.pc = tonumber(addr,16)
 			end
         end
@@ -193,14 +192,16 @@ end
 
 
 function main()
-	print "running tests"
+	io.stderr:write("running tests\n")
 	test()
-	print "loading srec"
+	io.stderr:write("loading srec\n")
 	local emu = Mips.Create(1024*1024*64)
-	emu:addDevice(0x10000000,4,DebugSerial.Create())
+	emu:addDevice(0x140003f8,8,Serial.Create())
 	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
-	loadSrec(emu,"./testkernel/kern.srec")
-	print "launching emulator..."
+        emu:addDevice(0x1fbf0004,4,PowerControl.Create(emu))
+
+	loadSrec(emu,arg[1])
+	io.stderr:write("launching emulator...\n")
 	while true do
 		emu:step()
 		--print(string.format("%08x",emu.pc))
