@@ -205,8 +205,10 @@ function main()
 	while true do
 		emu:step()
 		--print(string.format("%08x",emu.pc))
-		--emu:dumpState()
-		--io.read()
+		--if emu.pc >= 0x800078b4 and emu.pc <= 0x80007904 then
+		--    emu:dumpState()
+		--    io.read()
+		--end
 	end
 end
 

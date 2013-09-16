@@ -47,6 +47,48 @@ void test_lw() {
 	
 }
 
+void test_lwl() {
+	
+	int x = 0x55667788;
+	char v[] = {0x11,0x22,0x33,0x44};
+	char * p = &v[0];
+	
+	asm("lwl %0, 0(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x11223344) {
+		outn(x);
+		FAIL;
+	}
+	
+	x = 0x55667788;
+	
+	asm("lwl %0, 1(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x22334488) {
+		outn(x);
+		FAIL;
+	}
+	
+	x = 0x55667788;
+	
+	asm("lwl %0, 2(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x33447788) {
+		outn(x);
+		FAIL;
+	}
+
+	x = 0x55667788;
+	
+	asm("lwl %0, 3(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x44667788) {
+		outn(x);
+		FAIL;
+	}
+	
+}
+
 
 void test_lb() {
 	
@@ -306,6 +348,7 @@ void test_ops() {
     T(test_divu);
     T(test_lui);
 	T(test_lw);
+	T(test_lwl);
     T(test_lb);
     T(test_lbu);
 	T(test_ori);

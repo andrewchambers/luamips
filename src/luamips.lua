@@ -405,6 +405,10 @@ function Mips:op_andi(op)
 	self:setRt(op,v)
 end
 
+function Mips:op_and(op)
+	self:setRd(op,band(self:getRs(op),self:getRt(op)))
+end
+
 function Mips:op_or(op)
 	self:setRd(op,bor(self:getRs(op),self:getRt(op)))
 end
@@ -448,10 +452,142 @@ function Mips:op_sw(op)
 	self:write(addr,self:getRt(op))
 end
 
+function Mips:op_sh(op)
+	local offset = sext16(self:getImm(op))
+	local addr = (self:getRs(op) + offset) % 0x100000000
+	local vlo = band(self:getRt(op),0xff)
+	local vhi = rshift(band(self:getRt(op),0xff00),8)
+	self:writeb(addr,vhi)
+	self:writeb(addr+1,vlo)
+end
+
+function Mips:op_lwl(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+    local rt = self:getRt(op)
+    local wordVal = self:read(addr)
+    local offset = addr % 4
+    local result
+
+    if offset == 0 then
+        result = wordVal
+    end
+    
+    if offset == 1 then
+        result = bor(band(wordVal, 0xffffff00) , band(rtVal, 0xff))
+    end
+    
+    if offset == 2 then
+        result = bor(band(wordVal, 0xffff0000) , band(rtVal, 0xffff))
+    end
+    
+    if offset == 3 then
+        result = bor(band(wordVal, 0xff000000) , band(rtVal, 0xffffff))
+    end
+    
+    self:setRt(op,result)
+end
+
+function Mips:op_swl(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+    local rt = self:getRt(op)
+    local wordVal = self:read(addr)
+    local offset = addr % 4
+    local result
+
+    if offset == 0 then
+        result = wordVal
+    end
+    
+    if offset == 1 then
+        result = bor(band(wordVal, 0xffffff00) , band(rtVal, 0xff))
+    end
+    
+    if offset == 2 then
+        result = bor(band(wordVal, 0xffff0000) , band(rtVal, 0xffff))
+    end
+    
+    if offset == 3 then
+        result = bor(band(wordVal, 0xff000000) , band(rtVal, 0xffffff))
+    end
+    
+    self:write(addr,result)
+end
+
+function Mips:op_lwr(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+    local rt = self:getRt(op)
+    local wordVal = self:read(addr-3)
+    local offset = addr % 4
+    local result
+
+    if offset == 3 then
+        result = wordVal
+    end
+    
+    if offset == 2 then
+        result = bor(band(wordVal, 0x00ffffff) , band(rtVal, 0xff000000))
+    end
+    
+    if offset == 1 then
+        result = bor(band(wordVal, 0xffff) , band(rtVal, 0xffff0000))
+    end
+    
+    if offset == 0 then
+        result = bor(band(wordVal, 0xff) , band(rtVal, 0xffffff00))
+    end
+    
+    self:setRt(op,result)
+end
+
+function Mips:op_swr(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+    local rt = self:getRt(op)
+    local wordVal = self:read(addr-3)
+    local offset = addr % 4
+    local result
+
+    if offset == 3 then
+        result = wordVal
+    end
+    
+    if offset == 2 then
+        result = bor(band(wordVal, 0x00ffffff) , band(rtVal, 0xff000000))
+    end
+    
+    if offset == 1 then
+        result = bor(band(wordVal, 0xffff) , band(rtVal, 0xffff0000))
+    end
+    
+    if offset == 0 then
+        result = bor(band(wordVal, 0xff) , band(rtVal, 0xffffff00))
+    end
+    
+    self:write(addr,result)
+end
 
 function Mips:op_lw(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:read(addr)
+	self:setRt(op,v)
+end
+
+function Mips:op_lhu(op)
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
+	local vlo = self:readb(addr+1)
+	local vhi = self:readb(addr)
+	local v = bor(lshift(vhi,8),vlo)
+	self:setRt(op,v)
+end
+
+function Mips:op_lh(op)
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
+	local vlo = self:readb(addr+1)
+	local vhi = self:readb(addr)
+	local v = sext16(bor(lshift(vhi,8),vlo))
 	self:setRt(op,v)
 end
 
@@ -469,7 +605,7 @@ function Mips:op_lbu(op)
 end
 
 function Mips:op_sb(op)
-	local addr = (self:getRs(op) + self:getImm(op)) % 0x100000000
+	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	self:writeb(addr,band(self:getRt(op),0xff))
 end
 
@@ -493,6 +629,46 @@ end
 function Mips:op_beq(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if self:getRs(op) == self:getRt(op) then
+		self.pc = (self.pc + offset) % 0x100000000
+	else
+		self.pc = self.pc + 8
+	end
+	self.inDelaySlot = true
+end
+
+function Mips:op_blez(op)
+	local offset = sext18(self:getImm(op) * 4)
+	if signed(self:getRs(op)) <= 0 then
+		self.pc = (self.pc + offset) % 0x100000000
+	else
+		self.pc = self.pc + 8
+	end
+	self.inDelaySlot = true
+end
+
+function Mips:op_bgez(op)
+	local offset = sext18(self:getImm(op) * 4)
+	if signed(self:getRs(op)) >= 0 then
+		self.pc = (self.pc + offset) % 0x100000000
+	else
+		self.pc = self.pc + 8
+	end
+	self.inDelaySlot = true
+end
+
+function Mips:op_bltz(op)
+	local offset = sext18(self:getImm(op) * 4)
+	if signed(self:getRs(op)) < 0 then
+		self.pc = (self.pc + offset) % 0x100000000
+	else
+		self.pc = self.pc + 8
+	end
+	self.inDelaySlot = true
+end
+
+function Mips:op_bgtz(op)
+	local offset = sext18(self:getImm(op) * 4)
+	if signed(self:getRs(op)) > 0 then
 		self.pc = (self.pc + offset) % 0x100000000
 	else
 		self.pc = self.pc + 8
@@ -529,6 +705,17 @@ end
 function Mips:op_sra(op)
 	local rt = self:getRt(op)
 	local sa = self:getShamt(op)
+	local signed = band(rt,0x80000000) > 0
+	local v = rshift(rt,sa)
+	if signed then
+		v = bor(bnot(rshift(0xffffffff,sa)),v)
+	end
+	self:setRd(op,v)
+end
+
+function Mips:op_srav(op)
+	local rt = self:getRt(op)
+	local sa = band(self:getRs(op),0x1f)
 	local signed = band(rt,0x80000000) > 0
 	local v = rshift(rt,sa)
 	if signed then

@@ -4,6 +4,10 @@
       "000000xxxxxxxxxxxxxxxxxxxx100000"
    ],
    [
+      "srav",
+      "000000xxxxxxxxxxxxxxxxxxxx000111"
+   ],
+   [
       "addi",
       "001000xxxxxxxxxxxxxxxxxxxxxxxxxx"
    ],
@@ -30,6 +34,22 @@
    [
       "bne",
       "000101xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "blez",
+      "000110xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "bgez",
+      "000001xxxxx00001xxxxxxxxxxxxxxxx"
+   ],
+   [
+      "bltz",
+      "000001xxxxx00000xxxxxxxxxxxxxxxx"
+   ],
+   [
+      "bgtz",
+      "000111xxxxxxxxxxxxxxxxxxxxxxxxxx"
    ],
    [
       "div",
@@ -62,6 +82,26 @@
    [
       "lhu",
       "100101xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "lwl",
+      "100010xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "lwr",
+      "100110xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "swl",
+      "101010xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "swr",
+      "101110xxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   [
+      "lh",
+      "100001xxxxxxxxxxxxxxxxxxxxxxxxxx"
    ],
    [
       "lui",
