@@ -1,6 +1,8 @@
 #include "test.h"
 
-#define FAIL do { outs("\nFAILED:"); putb(' '); putb(' ');  outs(__func__);  } while(0)
+#define FAIL do { outs("\nFAILED:"); putchar(' '); putchar(' ');  outs(__func__); failed = 1;  } while(0)
+
+int failed = 0;
 
 void test_lui() {
 	
@@ -49,46 +51,83 @@ void test_lw() {
 
 void test_lwl() {
 	
-	int x = 0x55667788;
-	char v[] = {0x11,0x22,0x33,0x44};
-	char * p = &v[0];
+	int x = 0;
+	int v[] = {0x0,0x11223344,0x0};
+	int * p = &v[1];
 	
+	x = 0;
 	asm("lwl %0, 0(%1)\n" : "=r"(x) : "r"(p));
 	
 	if ( x != 0x11223344) {
-		outn(x);
+	    outn(x);
 		FAIL;
 	}
 	
-	x = 0x55667788;
-	
+	x = 0;
 	asm("lwl %0, 1(%1)\n" : "=r"(x) : "r"(p));
 	
-	if ( x != 0x22334488) {
+	if ( x != 0x223344bc) {
 		outn(x);
 		FAIL;
 	}
-	
-	x = 0x55667788;
-	
+    
+    x = 0;
 	asm("lwl %0, 2(%1)\n" : "=r"(x) : "r"(p));
 	
-	if ( x != 0x33447788) {
+	if ( x != 0x3344ffbc) {
 		outn(x);
 		FAIL;
 	}
-
-	x = 0x55667788;
 	
+	x = 0;
 	asm("lwl %0, 3(%1)\n" : "=r"(x) : "r"(p));
 	
-	if ( x != 0x44667788) {
+	if ( x != 0x44ffffbc) {
 		outn(x);
 		FAIL;
 	}
 	
 }
 
+void test_lwr() {
+	
+	int x = 0;
+	int v[] = {0x0,0x11223344,0x0};
+	int * p = &v[1];
+	
+	x = 0;
+	asm("lwr %0, 0(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x82ffff11) {
+	    outn(x);
+		FAIL;
+	}
+	
+	x = 0;
+	asm("lwr %0, 1(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x82ff1122) {
+		outn(x);
+		FAIL;
+	}
+    
+    x = 0;
+	asm("lwr %0, 2(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x82112233) {
+		outn(x);
+		FAIL;
+	}
+	
+	x = 0;
+	asm("lwr %0, 3(%1)\n" : "=r"(x) : "r"(p));
+	
+	if ( x != 0x11223344) {
+		outn(x);
+		FAIL;
+	}
+	
+}
 
 void test_lb() {
 	
@@ -338,23 +377,26 @@ void test_divu() {
 }
 
 
-#define T(x) putb('.'); x()
+#define T(x) putchar('.'); x()
 
-void test_ops() {
-	outs("starting opcode tests...");
+int main() {
+    failed = 0;
+	outs("---- starting opcode tests ----");
 	T(test_add);
     T(test_addi);
     T(test_div);
     T(test_divu);
+    T(test_lb);
+    T(test_lbu);
     T(test_lui);
 	T(test_lw);
 	T(test_lwl);
-    T(test_lb);
-    T(test_lbu);
+	T(test_lwr);
 	T(test_ori);
 	T(test_sll);
     T(test_srl);
     T(test_xor);
     T(test_xori);
-	outs("\nfinished opcode tests...");
+	outs("\n---- finished opcode tests ----");
+	return failed;
 }

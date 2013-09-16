@@ -1,4 +1,4 @@
-int TESTENTRY(void)
+int main(void)
 {
   unsigned int a1 = 1, a2 = 1, a3 = 2, sum = 0;
 

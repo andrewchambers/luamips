@@ -1,5 +1,5 @@
 
-int TESTENTRY(void)
+int main(void)
 {
   unsigned int n = 13195;
   unsigned int i;

@@ -4,7 +4,7 @@ set -e
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-mips-baremetal-elf-gcc -mno-plt -DCSMITH_MINIMAL -DNO_PRINTF -I$DIR/csmith_headers/ -nostartfiles $DIR/plat.c $DIR/support.c $DIR/start.S rand_prog.c -o kern
+mips-baremetal-elf-gcc -DCSMITH_MINIMAL -DNO_PRINTF -I$DIR/csmith_headers/ -nostartfiles $DIR/plat.c $DIR/support.c $DIR/start.S rand_prog.c -o kern
 mips-baremetal-elf-objcopy -Osrec kern kern.srec
 echo "" | timeout 2s qemu-system-mips -machine mips  -cpu 4kc -kernel kern -nographic -serial file:hash1.out
 grep "checksum =" ./hash1.out 
@@ -19,10 +19,10 @@ if [ $? -ne 0  ] ; then
     exit 0
 fi
 
-if ! diff -u hash1.out hash2.out ; then
-   echo "interesting! - differing checksums"
-   exit 0
-fi
+#if ! diff -u hash1.out hash2.out ; then
+#   echo "interesting! - differing checksums"
+#   exit 0
+#fi
 
 
 exit 1

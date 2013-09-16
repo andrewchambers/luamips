@@ -2,7 +2,7 @@
 
 static int is_palindromic(unsigned int n);
 
-int TESTENTRY(void)
+int main(void)
 {
   if(! is_palindromic(1001)) {
     return 1;

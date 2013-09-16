@@ -1,6 +1,6 @@
 
 
-int TESTENTRY(void)
+int main(void)
 {
   int s3 = 0, s5 = 0, s15 = 0;
   int i,ans;

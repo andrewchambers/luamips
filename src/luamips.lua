@@ -464,8 +464,11 @@ end
 function Mips:op_lwl(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
-    local rt = self:getRt(op)
-    local wordVal = self:read(addr)
+    local rtVal = self:getRt(op)
+    local wordVal = self:readb(addr + 3)
+    wordVal = wordVal + self:readb(addr + 2) * 0x100
+    wordVal = wordVal + self:readb(addr + 1) * 0x10000
+    wordVal = wordVal + self:readb(addr)     * 0x1000000
     local offset = addr % 4
     local result
 
@@ -518,8 +521,11 @@ end
 function Mips:op_lwr(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
-    local rt = self:getRt(op)
-    local wordVal = self:read(addr-3)
+    local rtVal = self:getRt(op)
+    local wordVal = self:readb(addr)
+    wordVal = wordVal + self:readb(addr - 1 ) * 0x100
+    wordVal = wordVal + self:readb(addr - 2) * 0x10000
+    wordVal = wordVal + self:readb(addr - 3)     * 0x1000000
     local offset = addr % 4
     local result
 
