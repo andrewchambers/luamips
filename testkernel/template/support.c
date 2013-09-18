@@ -30,3 +30,18 @@ void outn(unsigned int n) {
     }
 }
 
+void exit(int) __attribute__ ((noreturn));
+
+void exit(int x) {
+    outs("exit:");
+    outn(x);
+    power_down();
+}
+
+
+void abort(void) __attribute__ ((noreturn));
+
+void abort(void) {
+    outs("abort.");
+    power_down();
+}

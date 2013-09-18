@@ -25,6 +25,7 @@ void write_serial(char a) {
 
 void power_down() {
 	outb(POWER_BASE,4,42);
+	while(1);
 }
 
 

@@ -15,7 +15,7 @@ function Serial:read(offset)
 end
 
 function Serial:readb(offset)
-	return 0xff
+	return 0x60
 end
 
 function Serial:write(offset,v)

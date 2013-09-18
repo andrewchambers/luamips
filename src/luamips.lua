@@ -153,6 +153,7 @@ function Mips.Create(size)
 	mips.memsize = size
 	assert(size%4 == 0)
 	mips.pc = 0
+	mips.delaypc = 0
 	mips.inDelaySlot = false
 	mips.hi = 0
     mips.lo = 0
@@ -172,7 +173,7 @@ end
 
 -- reg number to reg names using the o32 abi
 regn2o32 = {
-	"zero",
+	"r0",
 	"at",
 	"v0",
 	"v1",
@@ -202,7 +203,7 @@ regn2o32 = {
 	"k1",
 	"gp",
 	"sp",
-	"fp",
+	"s8",
 	"ra"
 }
 
@@ -332,20 +333,19 @@ end
 
 function Mips:step()
 	assert( self.pc % 4 == 0,"unaligned pc")
+	
+	local startInDelaySlot = self.inDelaySlot
 	local opcode = self:read(self.pc)
-	local delaypc = self.pc +4
-	
-	self:doop(opcode)
-	self.regs[0] = 0
-	
-    if self.inDelaySlot then
-        opcode = self:read(delaypc)
-        self:doop(opcode)
-        self.regs[0] = 0
-        self.inDelaySlot = false
-    else
-        self.pc = self.pc + 4
-    end
+    self:doop(opcode)
+    self.regs[0] = 0
+	if startInDelaySlot then
+	    self.pc = self.delaypc
+	    self.inDelaySlot = false
+	    return
+	end
+    
+    self.pc = self.pc +4
+    
 end
 
 function Mips:setRt(op,val)
@@ -491,11 +491,15 @@ function Mips:op_lwl(op)
     self:setRt(op,result)
 end
 
+
 function Mips:op_swl(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
-    local rt = self:getRt(op)
-    local wordVal = self:read(addr)
+    local rtVal = self:getRt(op)
+    local wordVal = self:readb(addr + 3)
+    wordVal = wordVal + self:readb(addr + 2) * 0x100
+    wordVal = wordVal + self:readb(addr + 1) * 0x10000
+    wordVal = wordVal + self:readb(addr)     * 0x1000000
     local offset = addr % 4
     local result
 
@@ -515,7 +519,10 @@ function Mips:op_swl(op)
         result = bor(band(wordVal, 0xff000000) , band(rtVal, 0xffffff))
     end
     
-    self:write(addr,result)
+    self:writeb(addr,band(result,0xff))
+    self:writeb(addr + 1,band(result,0xff00) / 0x100)
+    self:writeb(addr + 2,band(result,0xff0000) / 0x10000)
+    self:writeb(addr + 3,band(result,0xff000000) / 0x1000000)
 end
 
 function Mips:op_lwr(op)
@@ -551,8 +558,11 @@ end
 function Mips:op_swr(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
-    local rt = self:getRt(op)
-    local wordVal = self:read(addr-3)
+    local rtVal = self:getRt(op)
+    local wordVal = self:readb(addr)
+    wordVal = wordVal + self:readb(addr - 1) * 0x100
+    wordVal = wordVal + self:readb(addr - 2) * 0x10000
+    wordVal = wordVal + self:readb(addr - 3) * 0x1000000
     local offset = addr % 4
     local result
 
@@ -572,7 +582,10 @@ function Mips:op_swr(op)
         result = bor(band(wordVal, 0xff) , band(rtVal, 0xffffff00))
     end
     
-    self:write(addr,result)
+    self:writeb(addr,band(result,0xff))
+    self:writeb(addr + 1,band(result,0xff00) / 0x100)
+    self:writeb(addr + 2,band(result,0xff0000) / 0x10000)
+    self:writeb(addr + 3,band(result,0xff000000) / 0x1000000)
 end
 
 function Mips:op_lw(op)
@@ -618,16 +631,16 @@ end
 function Mips:op_j(op)
 	local top = band(self.pc,0xf0000000)
 	local addr = bor(top,(band(op,0x3ffffff)*4))
-	self.pc = addr
+	self.delaypc = addr
 	self.inDelaySlot = true
 end
 
 function Mips:op_bne(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if self:getRs(op) ~= self:getRt(op) then
-		self.pc = (self.pc + 4 + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -635,9 +648,9 @@ end
 function Mips:op_beq(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if self:getRs(op) == self:getRt(op) then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -645,9 +658,9 @@ end
 function Mips:op_blez(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) <= 0 then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -655,9 +668,9 @@ end
 function Mips:op_bgez(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) >= 0 then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -665,9 +678,9 @@ end
 function Mips:op_bltz(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) < 0 then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -675,9 +688,9 @@ end
 function Mips:op_bgtz(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) > 0 then
-		self.pc = (self.pc + offset) % 0x100000000
+		self.delaypc = (self.pc + 4 + offset) % 0x100000000
 	else
-		self.pc = self.pc + 8
+		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
 end
@@ -686,13 +699,13 @@ function Mips:op_jal(op)
 	local pc = self.pc
 	local top = band(pc,0xf0000000)
 	local addr = bor(top,lshift(band(op,0x3ffffff),2))
-	self.pc = addr
+	self.delaypc = addr
 	self.regs[31] = (pc + 8) % 0x100000000
 	self.inDelaySlot = true
 end
 
 function Mips:op_jr(op)
-	self.pc = self:getRs(op)
+	self.delaypc = self:getRs(op)
 	self.inDelaySlot = true
 end
 
@@ -830,6 +843,11 @@ end
 function Mips:op_mult(op)
     -- XXX consider evaling HI and LO lazily, and in seperate parts
     self.hi,self.lo = karatsuba(self:getRs(op),self:getRt(op),true)
+end
+
+function Mips:op_multu(op)
+    -- XXX consider evaling HI and LO lazily, and in seperate parts
+    self.hi,self.lo = karatsuba(self:getRs(op),self:getRt(op),false)
 end
 
 function Mips:op_mfhi(op)
