@@ -189,7 +189,50 @@ function loadSrec(emu,fname)
 end
 
 
+function startTrace(fname)
+    local t = {}
+    t.state = {}
+    t.file = io.open(fname,"w")
+	    if t.file == nil then
+	        error("failed to open trace file " .. fname)
+	    end
+    return t
+end
 
+function updateTrace(t,emu)
+    
+    local tstring = "{"
+    for i = 1,32 do
+        local rname = regn2o32[i]
+        if t.state[rname] ~= emu.regs[i-1] then
+            t.state[rname] = emu.regs[i-1]
+            tstring = tstring .. string.format('"%s" : %d ,',rname,emu.regs[i-1])
+        end
+        
+        if t.state.pc ~= emu.pc then
+            t.state.pc = emu.pc
+            tstring = tstring .. string.format('"pc" : %d ,',emu.pc)
+        end
+        
+        if t.state.lo ~= emu.lo then
+            t.state.lo = emu.lo
+            tstring = tstring .. string.format('"lo" : %d ,',emu.lo)
+        end
+        
+        if t.state.hi ~= emu.hi then
+            t.state.hi = emu.hi
+            tstring = tstring .. string.format('"hi" : %d ,',emu.hi)
+        end
+    end
+    
+    if tstring ~= "{" then
+        tstring = string.sub(tstring,0,string.len(tstring) - 1)
+    end
+    
+    tstring = tstring .. "}\n"
+    t.file:write(tstring)
+    t.file:flush()
+end
 
 function main()
 	io.stderr:write("running tests\n")
@@ -198,12 +241,20 @@ function main()
 	local emu = Mips.Create(1024*1024*64)
 	emu:addDevice(0x140003f8,8,Serial.Create())
 	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
-        emu:addDevice(0x1fbf0004,4,PowerControl.Create(emu))
+    emu:addDevice(0x1fbf0004,4,PowerControl.Create(emu))
 
 	loadSrec(emu,arg[1])
+	local trace = nil 
+	if #arg == 2 then
+        trace = startTrace(arg[2])
+	end
 	io.stderr:write("launching emulator...\n")
 	while true do
+		if trace ~= nil then
+		    updateTrace(trace,emu)
+		end
 		emu:step()
+		
 		--print(string.format("%08x",emu.pc))
 		--if emu.pc >= 0x800078b4 and emu.pc <= 0x80007904 then
 		--    emu:dumpState()
