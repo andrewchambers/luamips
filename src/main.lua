@@ -254,9 +254,11 @@ function main()
 		    updateTrace(trace,emu)
 		end
 		emu:step()
-		
-		--print(string.format("%08x",emu.pc))
-		--if emu.pc >= 0x800078b4 and emu.pc <= 0x80007904 then
+	    --if emu.pc >= 0x800078c4 and emu.pc <= 0x80007914 then
+		--    print(string.format("%08x",emu.pc))
+		--    print(string.format("  %08x",emu:read(0x800094a0)))
+		--    print(string.format("  %08x",emu:read(0x800094a4)))
+		--    print(string.format("  %08x",emu:read(0x800094a8)))
 		--    emu:dumpState()
 		--    io.read()
 		--end

@@ -465,10 +465,7 @@ function Mips:op_lwl(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
-    local wordVal = self:readb(addr + 3)
-    wordVal = wordVal + self:readb(addr + 2) * 0x100
-    wordVal = wordVal + self:readb(addr + 1) * 0x10000
-    wordVal = wordVal + self:readb(addr)     * 0x1000000
+    local wordVal = self:read(addr - (addr % 4))
     local offset = addr % 4
     local result
 
@@ -477,62 +474,55 @@ function Mips:op_lwl(op)
     end
     
     if offset == 1 then
-        result = bor(band(wordVal, 0xffffff00) , band(rtVal, 0xff))
+        result = bor(lshift(wordVal, 8) , band(rtVal, 0xff))
     end
     
     if offset == 2 then
-        result = bor(band(wordVal, 0xffff0000) , band(rtVal, 0xffff))
+        result = bor(lshift(wordVal, 16) , band(rtVal, 0xffff))
     end
     
     if offset == 3 then
-        result = bor(band(wordVal, 0xff000000) , band(rtVal, 0xffffff))
+        result = bor(lshift(wordVal, 24) , band(rtVal, 0xffffff))
     end
     
     self:setRt(op,result)
 end
 
-
 function Mips:op_swl(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
-    local wordVal = self:readb(addr + 3)
-    wordVal = wordVal + self:readb(addr + 2) * 0x100
-    wordVal = wordVal + self:readb(addr + 1) * 0x10000
-    wordVal = wordVal + self:readb(addr)     * 0x1000000
+    local wordVal = self:read(addr - (addr % 4))
     local offset = addr % 4
     local result
 
     if offset == 0 then
-        result = wordVal
+        result = rtVal
     end
     
     if offset == 1 then
-        result = bor(band(wordVal, 0xffffff00) , band(rtVal, 0xff))
+        result = bor(band(wordVal,0xff000000) , band(rshift(rtVal,8),0xffffff))
     end
     
     if offset == 2 then
-        result = bor(band(wordVal, 0xffff0000) , band(rtVal, 0xffff))
+        result = bor(band(wordVal,0xffff0000) , band(rshift(rtVal,16),0xffff))
     end
     
     if offset == 3 then
-        result = bor(band(wordVal, 0xff000000) , band(rtVal, 0xffffff))
+        result = bor(band(wordVal,0xffffff00) , band(rshift(rtVal,24),0xff))
     end
     
-    self:writeb(addr,band(result,0xff))
-    self:writeb(addr + 1,band(result,0xff00) / 0x100)
-    self:writeb(addr + 2,band(result,0xff0000) / 0x10000)
-    self:writeb(addr + 3,band(result,0xff000000) / 0x1000000)
+    self:write(addr - (addr % 4),result)
 end
+
+
+
 
 function Mips:op_lwr(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
-    local wordVal = self:readb(addr)
-    wordVal = wordVal + self:readb(addr - 1 ) * 0x100
-    wordVal = wordVal + self:readb(addr - 2) * 0x10000
-    wordVal = wordVal + self:readb(addr - 3)     * 0x1000000
+    local wordVal = self:read(addr - (addr % 4))
     local offset = addr % 4
     local result
 
@@ -541,15 +531,15 @@ function Mips:op_lwr(op)
     end
     
     if offset == 2 then
-        result = bor(band(wordVal, 0x00ffffff) , band(rtVal, 0xff000000))
+        result = bor(band(rtVal, 0xff000000) , rshift(wordVal,8))
     end
     
     if offset == 1 then
-        result = bor(band(wordVal, 0xffff) , band(rtVal, 0xffff0000))
+        result = bor(band(rtVal, 0xffff0000) , rshift(wordVal,16))
     end
     
     if offset == 0 then
-        result = bor(band(wordVal, 0xff) , band(rtVal, 0xffffff00))
+        result = bor(band(rtVal, 0xffffff00) , rshift(wordVal,24))
     end
     
     self:setRt(op,result)
@@ -559,33 +549,27 @@ function Mips:op_swr(op)
     local c = sext16(band(op,0x0000ffff))
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
-    local wordVal = self:readb(addr)
-    wordVal = wordVal + self:readb(addr - 1) * 0x100
-    wordVal = wordVal + self:readb(addr - 2) * 0x10000
-    wordVal = wordVal + self:readb(addr - 3) * 0x1000000
+    local wordVal = self:read(addr - (addr % 4))
     local offset = addr % 4
     local result
 
     if offset == 3 then
-        result = wordVal
+        result = rtVal
     end
     
     if offset == 2 then
-        result = bor(band(wordVal, 0x00ffffff) , band(rtVal, 0xff000000))
+        result = bor( band(lshift(rtVal,8),0xffffff00), band(wordVal,0xff) ) 
     end
     
     if offset == 1 then
-        result = bor(band(wordVal, 0xffff) , band(rtVal, 0xffff0000))
+        result = bor( band(lshift(rtVal,16),0xffff0000), band(wordVal,0xffff) ) 
     end
     
     if offset == 0 then
-        result = bor(band(wordVal, 0xff) , band(rtVal, 0xffffff00))
+        result = bor( band(lshift(rtVal,24),0xff000000), band(wordVal,0xffffff) ) 
     end
     
-    self:writeb(addr,band(result,0xff))
-    self:writeb(addr + 1,band(result,0xff00) / 0x100)
-    self:writeb(addr + 2,band(result,0xff0000) / 0x10000)
-    self:writeb(addr + 3,band(result,0xff000000) / 0x1000000)
+    self:write(addr - (addr % 4),result)
 end
 
 function Mips:op_lw(op)
