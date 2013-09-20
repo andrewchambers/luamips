@@ -37,6 +37,9 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
     
     
     function lshift(a,b)
+        if b > 31 then
+            return 0
+        end
         local ret = bit.lshift(a,b)
         ret = ret % 0x100000000
         if ret < 0 then
@@ -47,6 +50,9 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
     
 
     function rshift(a,b)
+        if b > 31 then
+            return 0
+        end
         ret = bit.rshift(a,b)
         if ret < 0 then
             return make_positive(ret)
@@ -223,7 +229,7 @@ function Mips.Create(size)
     mips.regs = {}
 	mips.devices = {}
 
-	for i = 0,32 do
+	for i = 0,31 do
 		mips.regs[i] = 0
 	end
 
@@ -235,12 +241,16 @@ function Mips.Create(size)
 end
 
 function Mips:debugCheckState()
+    local err = function(msg)
+	    io.stderr:write(msg .. "\n")
+	    self:dumpState()
+	    os.exit(1)
+    end 
+    
     local passed = false
-    for i = 0,32 do
+    for i = 0,31 do
 		if self.regs[i] < 0 or self.regs[i] > 0xffffffff  then
-		    io.stderr:write("register " .. regn2o32[i] .. " out of range!\n")
-		    self:dumpState()
-		    os.exit(1)
+            err("register " .. regn2o32[i] .. " out of range!\n")
 		end
 	end
 end
@@ -406,8 +416,6 @@ end
 
 
 function Mips:step()
-	assert( self.pc % 4 == 0,"unaligned pc")
-	
 	local startInDelaySlot = self.inDelaySlot
 	local opcode = self:read(self.pc)
     self:doop(opcode)
@@ -424,7 +432,9 @@ function Mips:step()
     self.pc = self.pc +4
     
 end
-
+--------------------------------------------------------------------------------
+-- Opcode helper functions
+--------------------------------------------------------------------------------
 function Mips:setRt(op,val)
 	local idx = rshift(band(op,0x1f0000),16)
 	self.regs[idx] = val
