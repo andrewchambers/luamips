@@ -41,9 +41,16 @@ function test_memory()
 end
 
 function test_bwise()
-	assert(lshift(0xff,24) == 0xff000000)
+	
 	assert(rshift(0xff000000,24) == 0xff)
+	
+	assert(lshift(0xff,24) == 0xff000000)
 	assert(rshift(1,1) == 0)
+    assert(lshift(0x80000000,1) == 0)
+    assert(lshift(0x80000001,31) == 0x80000000)
+    assert(lshift(0xffffffff,31) == 1)
+    assert(lshift(0xffffffff,32) == 1)
+    assert(lshift(0x80000001,32) == 0x00000000)
 	
 	assert(bor(0xffffffff,0) == 0xffffffff)
 	assert(bor(0xffff0000,0) == 0xffff0000)

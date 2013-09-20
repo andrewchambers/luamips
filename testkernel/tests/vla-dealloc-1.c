@@ -1,11 +1,8 @@
 /* VLAs should be deallocated on a jump to before their definition,
    including a jump to a label in an inner scope.  PR 19771.  */
 
-#if (__SIZEOF_INT__ <= 2)
-#define LIMIT 10000
-#else
-#define LIMIT 1000000
-#endif
+
+#define LIMIT 500
 
 void *volatile p;
 

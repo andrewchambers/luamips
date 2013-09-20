@@ -13,7 +13,7 @@ main (void)
   x[n % 1000] = 2;
   p = x;
   n++;
-  if (n < 1000000)
+  if (n < 1000)
     goto lab;
   return 0;
 }

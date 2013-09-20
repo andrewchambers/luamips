@@ -68,6 +68,10 @@
       "000011xxxxxxxxxxxxxxxxxxxxxxxxxx"
    ],
    [
+      "jalr",
+      "000000xxxxxxxxxxxxxxxxxxxx001001"
+   ],
+   [
       "jr",
       "000000xxxxxxxxxxxxxxxxxxxx001000"
    ],

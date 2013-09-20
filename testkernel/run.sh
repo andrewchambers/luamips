@@ -15,7 +15,7 @@ fi
 
 set +e
 echo "" | timeout 2s qemu-system-mips -machine mips -cpu 4kc -nographic -kernel kern > qemu.out
-timeout 6s $INTERP ../emu.lua ./kern.srec > luamips.out
+timeout 20s $INTERP ../emu.lua ./kern.srec > luamips.out
 set -e
 
 if grep -q FAIL ./luamips.out ; then

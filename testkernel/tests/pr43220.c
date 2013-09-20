@@ -21,7 +21,7 @@ lab:;
       n++;
     }
 
-  if (n < 1000000)
+  if (n < 100)
     goto lab;
 
   return 0;

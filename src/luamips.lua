@@ -2,60 +2,123 @@
 Mips = {}
 Mips.__index = Mips
 
+local SLOW_BITOPS = os.getenv("LUAMIPS_SLOWBITOPS") == "true"
+local SLOW_ASSERTIONS = os.getenv("LUAMIPS_SLOWASSERTIONS") == "true"
 
-function lshift(v,amt)
-	return (v * 2^amt) % 0x100000000
+if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
+    io.stderr:write("using fast bitops\n")
+    function make_positive(v)
+        return bit.band(v,0x7fffffff) + 0x80000000
+    end
+    
+    function band(a,b)
+        local ret = bit.band(a,b)
+        if ret < 0 then
+            return make_positive(ret)
+        end
+        return ret
+    end
+
+    function bor(a,b)
+        local ret = bit.bor(a,b)
+        if ret < 0 then
+            return make_positive(ret)
+        end
+        return ret
+    end
+
+    function bxor(a,b)
+        local ret = bit.bxor(a,b)
+        if ret < 0 then
+            return make_positive(ret)
+        end
+        return ret
+    end
+    
+    
+    function lshift(a,b)
+        local ret = bit.lshift(a,b)
+        ret = ret % 0x100000000
+        if ret < 0 then
+            return make_positive(ret)
+        end
+        return ret
+    end
+    
+
+    function rshift(a,b)
+        ret = bit.rshift(a,b)
+        if ret < 0 then
+            return make_positive(ret)
+        end
+        return ret
+    end
+
+
+
+else -- we dont have the luajit bit library
+    io.stderr:write("using slow bitops\n")
+    
+    function band(a,b)
+	    local val = 0
+	    local i = 0
+	    while a > 0 and b > 0 do		
+		    if a % 2 == 1 and b % 2 == 1 then
+			    val = val + 2^i
+		    end
+		    a = math.floor(a / 2)
+		    b = math.floor(b / 2)
+		    i = i + 1
+	    end
+	    return val
+    end
+
+    function bor(a,b)
+	    local val = 0
+	    local i = 0
+	    while a > 0 or b > 0 do		
+		    if a % 2 == 1 or b % 2 == 1 then
+			    val = val + 2^i
+		    end
+		    a = math.floor(a / 2)
+		    b = math.floor(b / 2)
+		    i = i + 1
+	    end
+	    return val
+    end
+
+
+    function bxor(a,b)
+	    local val = 0
+	    for i=0,31 do		
+		    if (a % 2 + b % 2) == 1 then
+			    val = val + 2^i
+		    end
+		    a = math.floor(a / 2)
+		    b = math.floor(b / 2)
+		    i = i + 1
+	    end
+	    return val
+    end
+    
+    
+    function lshift(v,amt)
+	    return (v * 2^amt) % 0x100000000
+    end
+
+    function rshift(v,amt)
+	    return math.floor(v / (2^amt))
+    end
+
+    
 end
 
-function rshift(v,amt)
-	return math.floor(v / (2^amt))
-end
-
-function bor(a,b)
-	local val = 0
-	local i = 0
-	while a > 0 or b > 0 do		
-		if a % 2 == 1 or b % 2 == 1 then
-			val = val + 2^i
-		end
-		a = math.floor(a / 2)
-		b = math.floor(b / 2)
-		i = i + 1
-	end
-	return val
-end
-
-function band(a,b)
-	local val = 0
-	local i = 0
-	while a > 0 and b > 0 do		
-		if a % 2 == 1 and b % 2 == 1 then
-			val = val + 2^i
-		end
-		a = math.floor(a / 2)
-		b = math.floor(b / 2)
-		i = i + 1
-	end
-	return val
-end
-
-function bxor(a,b)
-	local val = 0
-	for i=0,31 do		
-		if (a % 2 + b % 2) == 1 then
-			val = val + 2^i
-		end
-		a = math.floor(a / 2)
-		b = math.floor(b / 2)
-		i = i + 1
-	end
-	return val
-end
 
 
 function bnot(a)
 	return 0xffffffff - a
 end
+
 
 function sext18(val)
 	if band(val,0x20000) ~= 0 then
@@ -169,6 +232,17 @@ function Mips.Create(size)
 	end
 
 	return mips
+end
+
+function Mips:debugCheckState()
+    local passed = false
+    for i = 0,32 do
+		if self.regs[i] < 0 or self.regs[i] > 0xffffffff  then
+		    io.stderr:write("register " .. regn2o32[i] .. " out of range!\n")
+		    self:dumpState()
+		    os.exit(1)
+		end
+	end
 end
 
 -- reg number to reg names using the o32 abi
@@ -338,6 +412,9 @@ function Mips:step()
 	local opcode = self:read(self.pc)
     self:doop(opcode)
     self.regs[0] = 0
+    if SLOW_ASSERTIONS then
+        self:debugCheckState()
+    end
 	if startInDelaySlot then
 	    self.pc = self.delaypc
 	    self.inDelaySlot = false
@@ -685,6 +762,12 @@ function Mips:op_jal(op)
 	local addr = bor(top,lshift(band(op,0x3ffffff),2))
 	self.delaypc = addr
 	self.regs[31] = (pc + 8) % 0x100000000
+	self.inDelaySlot = true
+end
+
+function Mips:op_jalr(op)
+	self.delaypc = self:getRs(op)
+	self.regs[31] = (self.pc + 8) % 0x100000000
 	self.inDelaySlot = true
 end
 
