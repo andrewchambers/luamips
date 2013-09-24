@@ -45,3 +45,16 @@ void abort(void) {
     outs("abort.");
     power_down();
 }
+
+/* helpers for writing interrupt handlers */
+
+void writeJump(void * jmpTarget,void * jmpPc) {
+    unsigned int jTarget = (unsigned int) jmpTarget;
+    unsigned int jPc = (unsigned int) jmpPc;
+    
+    unsigned int opcode = (1 << 27) | ((jTarget - jPc) & 0x3ffffff);
+    *((unsigned int*) jmpPc) = opcode;
+}
+
+
+

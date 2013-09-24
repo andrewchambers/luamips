@@ -35,7 +35,6 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
         return ret
     end
     
-    
     function lshift(a,b)
         if b > 31 then
             return 0
@@ -415,11 +414,65 @@ function Mips:write(addr,val)
 end
 
 
+function Mips:handleException(delaySlot)
+    local offset
+    if self.exl == 0 then
+        if delaySlot then
+            self.epc = self.pc - 4
+            self.bd = 1
+        else
+            self.epc = self.pc
+            self.bd = 0
+        end
+        
+        if self.exccode == TLBREFILL then
+            offset = 0
+        else if self.exccode == INT and self.iv == 1 then
+            offset = 0x200
+        else
+            offset = 0x180
+        end
+    else
+        offset = 0x180
+    end
+    
+    -- Faulting coprocessor number set at fault location
+    -- exccode set at fault location
+    self.exl = 1
+    
+    if self.bev == 1 then
+        self.pc = 0xbfc00200 + offset
+    else
+        self.pc = 0x80000000 + offset
+    end
+    
+    self.exceptionOccured = false
+    
+end
+
+function Mips:triggerException(code)
+    self.exccode = 12
+    self.exceptionOccured = true
+end
+
 function Mips:step()
+    
+    if self.interruptOccured then
+        --only handle hw interrupts outside of delay slot
+        if not self.inDelaySlot then
+            self:handleException(false)
+        end
+    end
+    
 	local startInDelaySlot = self.inDelaySlot
 	local opcode = self:read(self.pc)
     self:doop(opcode)
     self.regs[0] = 0
+    
+    if self.exceptionOccured then
+        self:handleException(startInDelaySlot)    
+    end
+    
     if SLOW_ASSERTIONS then
         self:debugCheckState()
     end
@@ -473,7 +526,12 @@ function Mips:op_lui(op)
 end
 
 function Mips:op_addi(op)
-	local v = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
+	local x = (self:getRs(op) + sext16(self:getImm(op)))
+	local v = x % 0x100000000
+	if x != v then
+	    self:triggerException(12)
+	    return
+	end
 	self:setRt(op,v)
 end
 
@@ -528,7 +586,8 @@ function Mips:op_add(op)
 	local r = v % 0x100000000
 	
 	if v ~= r then
-		error("overflow trap not implemented")
+		self:triggerException(12)
+		return
 	end 
 	self:setRd(op,r)
 end
