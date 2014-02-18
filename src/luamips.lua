@@ -2,8 +2,8 @@
 Mips = {}
 Mips.__index = Mips
 
-local SLOW_BITOPS = os.getenv("LUAMIPS_SLOWBITOPS") == "true"
-local SLOW_ASSERTIONS = os.getenv("LUAMIPS_SLOWASSERTIONS") == "true"
+local SLOW_BITOPS = false
+local SLOW_ASSERTIONS = true
 
 if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
     io.stderr:write("using fast bitops\n")
@@ -47,7 +47,6 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
         return ret
     end
     
-
     function rshift(a,b)
         if b > 31 then
             return 0
@@ -58,8 +57,6 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
         end
         return ret
     end
-
-
 
 else -- we dont have the luajit bit library
     io.stderr:write("using slow bitops\n")
@@ -92,7 +89,6 @@ else -- we dont have the luajit bit library
 	    return val
     end
 
-
     function bxor(a,b)
 	    local val = 0
 	    for i=0,31 do		
@@ -105,7 +101,6 @@ else -- we dont have the luajit bit library
 	    end
 	    return val
     end
-    
     
     function lshift(v,amt)
 	    return (v * 2^amt) % 0x100000000
@@ -122,7 +117,6 @@ end
 function bnot(a)
 	return 0xffffffff - a
 end
-
 
 function sext18(val)
 	if band(val,0x20000) ~= 0 then
@@ -191,7 +185,6 @@ function karatsuba(a,b,signed)
     local hi = z2 + ((t1-t1%4294967296) / 4294967296)
     local lo = (z1*65536 + z0) % 0x100000000
     
-    
     -- not (n1sign xor n2sign)
     if signed and not ( (n1sign and n2sign) or (not (n1sign or n2sign) ) ) then
         --we must make hi and lo negative
@@ -210,6 +203,52 @@ function karatsuba(a,b,signed)
     
     return hi,lo
 end
+
+--CP0 flags
+local CP0St_CU3 = 31
+local CP0St_CU2 = 30
+local CP0St_CU1 = 29
+local CP0St_CU0 = 28
+local CP0St_RP  = 27
+local CP0St_FR  = 26
+local CP0St_RE  = 25
+local CP0St_MX  = 24
+local CP0St_PX  = 23
+local CP0St_BEV = 22
+local CP0St_TS  = 21
+local CP0St_SR  = 20
+local CP0St_NMI = 19
+local CP0St_IM  = 8
+local CP0St_KX  = 7
+local CP0St_SX  = 6
+local CP0St_UX  = 5
+local CP0St_UM  = 4
+local CP0St_KSU = 3
+local CP0St_ERL = 2
+local CP0St_EXL = 1
+local CP0St_IE  = 0
+-- Possible Values for the EXC field in the status reg
+local EXC_Int    = 0
+local EXC_Mod    = 1
+local EXC_TLBL   = 2
+local EXC_TLBS   = 3
+local EXC_AdEL   = 4
+local EXC_AdES   = 5
+local EXC_IBE    = 6
+local EXC_DBE    = 7
+local EXC_SYS    = 8
+local EXC_BP     = 9
+local EXC_RI     = 10
+local EXC_CpU    = 11
+local EXC_Ov     = 12
+local EXC_Tr     = 13
+local EXC_Watch  = 23
+local EXC_MCheck = 24
+-- tlb lookup return codes
+local TLBRET_MATCH   = 0
+local TLBRET_NOMATCH = 1
+local TLBRET_DIRTY   = 2
+local TLBRET_INVALID = 3
 
 
 function Mips.Create(size)
@@ -517,13 +556,8 @@ function Mips:op_lui(op)
 end
 
 function Mips:op_addi(op)
-	local x = (self:getRs(op) + sext16(self:getImm(op)))
-	local v = x % 0x100000000
-	if x ~= v then
-	    self:triggerException(12)
-	    return
-	end
-	self:setRt(op,v)
+	--XXX ignores exception for overflow...
+    self:op_addiu(op)
 end
 
 function Mips:op_ori(op)
@@ -766,6 +800,16 @@ function Mips:op_bne(op)
 	self.inDelaySlot = true
 end
 
+function Mips:op_bnel(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if self:getRs(op) ~= self:getRt(op) then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
+end
+
 function Mips:op_beq(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if self:getRs(op) == self:getRt(op) then
@@ -774,6 +818,16 @@ function Mips:op_beq(op)
 		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
+end
+
+function Mips:op_beql(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if self:getRs(op) == self:getRt(op) then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
 end
 
 function Mips:op_blez(op)
@@ -786,6 +840,16 @@ function Mips:op_blez(op)
 	self.inDelaySlot = true
 end
 
+function Mips:op_blezl(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if signed(self:getRs(op)) <= 0 then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
+end
+
 function Mips:op_bgez(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) >= 0 then
@@ -794,6 +858,16 @@ function Mips:op_bgez(op)
 		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
+end
+
+function Mips:op_bgezl(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if signed(self:getRs(op)) >= 0 then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
 end
 
 function Mips:op_bltz(op)
@@ -806,6 +880,16 @@ function Mips:op_bltz(op)
 	self.inDelaySlot = true
 end
 
+function Mips:op_bltzl(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if signed(self:getRs(op)) < 0 then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
+end
+
 function Mips:op_bgtz(op)
 	local offset = sext18(self:getImm(op) * 4)
 	if signed(self:getRs(op)) > 0 then
@@ -814,6 +898,17 @@ function Mips:op_bgtz(op)
 		self.delaypc = self.pc + 8
 	end
 	self.inDelaySlot = true
+end
+
+function Mips:op_bgtzl(op)
+    local offset = sext18(self:getImm(op) * 4)
+    if signed(self:getRs(op)) > 0 then
+        self.delaypc = (self.pc + 4 + offset) % 0x100000000
+        self.inDelaySlot = true
+    else
+        self.pc = self.pc + 4
+    end
+    
 end
 
 function Mips:op_jal(op)
