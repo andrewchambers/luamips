@@ -119,7 +119,6 @@ else -- we dont have the luajit bit library
 end
 
 
-
 function bnot(a)
 	return 0xffffffff - a
 end
@@ -227,6 +226,24 @@ function Mips.Create(size)
     mips.lo = 0
     mips.regs = {}
 	mips.devices = {}
+
+    mips.llbit = 0
+    mips.CP0_Index = 0
+    mips.CP0_EntryHi = 0
+    mips.CP0_EntryLo0 = 0
+    mips.CP0_EntryLo1 = 0
+    mips.CP0_Context = 0
+    mips.CP0_Wired = 0
+    mips.CP0_Status = 0
+    mips.CP0_Epc = 0
+    mips.CP0_BadVAddr = 0
+    mips.CP0_ErrorEpc = 0
+    mips.CP0_Cause = 0
+    mips.CP0_PageMask = 0
+    
+    mips.CP0_Count = 0
+    mips.CP0_Compare = 0
+
 
 	for i = 0,31 do
 		mips.regs[i] = 0
@@ -409,50 +426,24 @@ function Mips:write(addr,val)
 	if addr >= self.memsize or addr < 0 then
 	    error(string.format("bad physical address %x",addr))
 	end
+	assert(val ~= nil)
 	assert(0 <= val and val <= 0xffffffff)
 	self.memory[addr/4] = val
 end
 
 
 function Mips:handleException(delaySlot)
-    local offset
-    if self.exl == 0 then
-        if delaySlot then
-            self.epc = self.pc - 4
-            self.bd = 1
-        else
-            self.epc = self.pc
-            self.bd = 0
-        end
-        
-        if self.exccode == TLBREFILL then
-            offset = 0
-        else if self.exccode == INT and self.iv == 1 then
-            offset = 0x200
-        else
-            offset = 0x180
-        end
-    else
-        offset = 0x180
-    end
-    
-    -- Faulting coprocessor number set at fault location
-    -- exccode set at fault location
-    self.exl = 1
-    
-    if self.bev == 1 then
-        self.pc = 0xbfc00200 + offset
-    else
-        self.pc = 0x80000000 + offset
-    end
-    
-    self.exceptionOccured = false
-    
+    print "XXX Exception"
+    return
 end
 
 function Mips:triggerException(code)
     self.exccode = 12
     self.exceptionOccured = true
+end
+
+function Mips:clearExternalInterrupt(intnum)
+
 end
 
 function Mips:step()
@@ -528,7 +519,7 @@ end
 function Mips:op_addi(op)
 	local x = (self:getRs(op) + sext16(self:getImm(op)))
 	local v = x % 0x100000000
-	if x != v then
+	if x ~= v then
 	    self:triggerException(12)
 	    return
 	end
@@ -976,6 +967,24 @@ function Mips:op_divu(op)
     self.lo = (rs - self.hi) / rt
 end
 
+function Mips:op_movz(op)
+    if self:getRt(op) == 0 then
+        self:setRd(op,self:getRs(op))
+    end
+end
+
+function Mips:op_movn(op)
+    if self:getRt(op) ~= 0 then
+        self:setRd(op,self:getRs(op))
+    end
+end
+
+function Mips:op_mul(op)
+    --XXX can be much faster
+    local hi,low = karatsuba(self:getRs(op),self:getRt(op),true)
+    self:setRd(op,low);
+end
+
 function Mips:op_mult(op)
     -- XXX consider evaling HI and LO lazily, and in seperate parts
     self.hi,self.lo = karatsuba(self:getRs(op),self:getRt(op),true)
@@ -992,4 +1001,95 @@ end
 
 function Mips:op_mflo(op)
     self:setRd(op,self.lo)
+end
+
+function Mips:op_mfc0(op)
+    local regNum = rshift(band(op, 0xf800), 11)
+    local sel = band(op, 7)
+    local retval = 0
+    
+    if regNum == 0 then -- Index
+        retval = self.CP0_Index;
+    elseif regNum == 2 then --EntryLo0
+        retval = self.CP0_EntryLo0
+    elseif regNum == 3 then --ntryLo1
+        retval = self.CP0_EntryLo1;
+    elseif regNum == 4 then -- Context
+        retval = self.CP0_Context
+    elseif regNum == 5 then -- Page Mask
+        retval = self.CP0_PageMask
+    elseif regNum == 6 then -- Wired
+        retval = self.CP0_Wired
+    elseif regNum == 8 then -- BadVAddr
+        retval = self.CP0_BadVAddr
+    elseif regNum == 9 then -- Count
+        retval = self.CP0_Count
+    elseif regNum == 10 then  -- EntryHi
+        retval = self.CP0_EntryHi
+    elseif regNum == 11 then  -- Compare
+        retval = self.CP0_Compare
+    elseif regNum == 12 then  -- Status
+        retval = self.CP0_Status
+    elseif regNum == 13 then 
+        retval = self.CP0_Cause
+    elseif regNum == 14 then  -- EPC
+        retval = self.CP0_Epc
+    elseif regNum == 15 then 
+        retval = 0x00018000 --processor id, just copied qemu 4kc
+    elseif regNum == 16 then 
+        if sel == 0 then
+            retval = 0x80008082 -- XXX cacheability fields shouldnt be hardcoded as writeable
+        elseif sel == 1 then
+            retval = 0x1e190c8a
+        end
+    elseif regNum == 18 or regNum == 19 then 
+        retval = 0
+    end
+    
+    self:setRt(op,retval)
+    
+end
+
+function Mips:op_mtc0(op)
+    local rt = self:getRt(op)
+    local regNum = rshift(band(op, 0xf800), 11)
+    local sel = band(op, 7)
+
+    if regNum == 0 then -- Index
+        self.CP0_Index = bor(band(self.CP0_Index, 0x80000000 ), bor(rt , 0xf))
+    elseif regNum == 2 then -- EntryLo0
+        self.CP0_EntryLo0 = band(rt , 0x3ffffff)
+    elseif regNum == 3 then -- EntryLo1
+        self.CP0_EntryLo1 = band(rt , 0x3ffffff)
+    elseif regNum == 4 then -- Context
+        self.CP0_Context = band(self.CP0_Context, bor(band(self.CP0_Context, bnot( 0xff800000 )) , band(rt, 0xff800000 )))
+    elseif regNum == 5 then -- Page Mask
+        if rt ~= 0 then
+            --print("XXX unhandled page mask");
+            return
+        end
+        self.CP0_PageMask = band(rt , 0x1ffe000)
+    elseif regNum == 6 then -- Wired
+        self.CP0_Wired = band(rt , 0xf)
+    elseif regNum == 9 then -- Count
+        self.CP0_Count = rt;
+    elseif regNum == 10 then -- EntryHi
+        self.CP0_EntryHi = band(rt , bnot(0x1f00))
+    elseif regNum == 11 then -- Compare
+        self:clearExternalInterrupt(5)
+        self.CP0_Compare = rt;
+    elseif regNum == 12 then -- Status
+        local status_mask = 0x7d7cff17;
+        self.CP0_Status =  bor(band(self.CP0_Status, bnot(status_mask)) , band(rt , status_mask))
+        --XXX NMI is one way write
+    elseif regNum == 13 then --cause
+        local cause_mask = bor(bor(lshift(1 , 23) , lshift(1 , 22)) , lshift(3 , 8));
+        self.CP0_Cause = bor(band(self.CP0_Cause , bnot(cause_mask) ) , band(rt , cause_mask))
+    elseif regNum == 14 then --epc
+        self.CP0_Epc = rt;
+    elseif regNum == 16 then
+    elseif regNum == 18 then
+    elseif regNum == 19 then
+    end
+
 end
