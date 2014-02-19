@@ -204,6 +204,256 @@ function karatsuba(a,b,signed)
     return hi,lo
 end
 
+
+
+
+-- START Uart code i.e. the terminal input and output to the machine
+
+-- -------------------------------------------------
+-- -------------------- UART -----------------------
+-- -------------------------------------------------
+
+local UART_LSR_DATA_READY = 0x1
+local UART_LSR_FIFO_EMPTY = 0x20
+local UART_LSR_TRANSMITTER_EMPTY = 0x40
+
+local UART_IER_THRI = 0x02  -- Enable Transmitter holding register int.
+local UART_IER_RDI = 0x01  -- Enable receiver data interrupt
+
+local UART_IIR_MSI = 0x00  -- Modem status interrupt (Low priority)
+local UART_IIR_NO_INT = 0x01
+local UART_IIR_THRI = 0x02 -- Transmitter holding register empty
+local UART_IIR_RDI = 0x04 -- Receiver data interrupt
+local UART_IIR_RLSI = 0x06 -- Receiver line status interrupt (High p.)
+local UART_IIR_CTI = 0x0c -- Character timeout
+
+local UART_LCR_DLAB = 0x80 -- Divisor latch access bit
+
+local UART_DLL = 0 -- R/W: Divisor Latch Low, DLAB=1
+local UART_DLH = 1 -- R/W: Divisor Latch High, DLAB=1
+
+local UART_IER = 1 -- R/W: Interrupt Enable Register
+local UART_IIR = 2 -- R: Interrupt ID Register
+local UART_FCR = 2 -- W: FIFO Control Register
+local UART_LCR = 3 -- R/W: Line Control Register
+local UART_MCR = 4 -- W: Modem Control Register
+local UART_LSR = 5 -- R: Line Status Register
+local UART_MSR = 6 -- R: Modem Status Register
+local UART_SCR = 7 -- R/W: 
+
+-- FIFO code - used so we dont drop characters of input
+-- dont call these directly, 
+
+
+
+function uart_newFifo()
+    local b = {}
+    for i = 0,31 do
+        b[i] = 0
+    end
+    return {last = 0 , first = 0 , count = 0 , buff = b }
+end
+
+function uart_fifoHasData(fifo)
+    return fifo.count > 0;
+end
+
+function uart_fifoPush(fifo, c) 
+    fifo.buff[fifo.last] = c
+    fifo.last = (fifo.last + 1) % 32;
+    fifo.count = fifo.count + 1
+    if fifo.count > 32  then
+       fifo.count = 32 
+    end
+end
+
+function uart_fifoGet(fifo) 
+
+    local c = 0
+    
+    if not uart_fifoHasData(fifo) then
+        return 0;
+    end
+    
+    c = fifo.buff[fifo.first]
+    fifo.first = (fifo.first + 1) % 32;
+    fifo.count = fifo.count - 1
+    
+    return c;
+end
+
+function uart_fifoClear(fifo)
+    fifo.last  = 0
+    fifo.first = 0
+    fifo.count = 0
+end
+
+
+-- end Fifo code
+
+
+
+Serial = {}
+Serial.__index = Serial
+
+function Serial.Create()
+    local ret = {}
+    setmetatable(ret,Serial)
+    ret.fifo = uart_newFifo()
+    ret:reset()
+    return ret
+end
+
+-- signal ready on read
+
+function Serial:read(offset)
+    return 0xffffffff
+end
+
+
+function Serial:write(offset,v)
+
+end
+
+
+
+function Serial:reset()
+    self.LCR = 3;
+    self.LSR = bor(UART_LSR_TRANSMITTER_EMPTY , UART_LSR_FIFO_EMPTY)
+    self.MSR = 0;
+    self.IIR = UART_IIR_NO_INT
+    self.IER = 0;
+    self.DLL = 0;
+    self.DLH = 0;
+    self.FCR = 0;
+    self.MCR = 0;
+    self.SCR = 0;    
+    uart_fifoClear(self.fifo);
+end
+
+function Serial:updateIrq ()
+    if band(self.LSR , UART_LSR_DATA_READY) > 0 and band(self.IER , UART_IER_RDI) > 0  then
+        self.IIR = UART_IIR_RDI
+    elseif band(self.LSR , UART_LSR_FIFO_EMPTY) > 0 and band(self.IER , UART_IER_THRI) > 0 then
+        self.IIR = UART_IIR_THRI
+    else
+        self.IIR = UART_IIR_NO_INT
+    end
+    
+    -- if there is an interrupt pending
+    if (self.IIR ~= UART_IIR_NO_INT) then
+        --triggerExternalInterrupt(emu,0);
+    else
+        --clearExternalInterrupt(emu,0);
+    end
+end
+
+function Serial:recieveChar()
+    uart_fifoPush(self..fifo,c);
+    self.LSR = bor(self.LSR,UART_LSR_DATA_READY)
+    self:updateIrq()
+end
+
+function Serial:readb(offset) 
+    
+    local ret
+    
+    offset = band(offset,7)
+    
+    if band(self.LCR , UART_LCR_DLAB) > 0 then
+            if offset == UART_DLL then
+                return self.DLL
+            elseif offset == UART_DLH then
+                return self.DLH
+            end
+    end
+    if offset == 0 then
+        ret = 0
+        if uart_fifoHasData(self.fifo) then
+            ret = uart_fifoGet(self.fifo)
+            self.LSR = band(self.LSR, bnot(UART_LSR_DATA_READY))
+            if uart_fifoHasData(self.fifo) then
+                self.LSR = bor(self.LSR,UART_LSR_DATA_READY)
+            end
+        end
+        self:updateIrq()
+        return ret
+    elseif offset == UART_IER then
+        return band(self.IER,0x0F)
+    elseif offset == UART_MSR then
+        return self.MSR
+    elseif offset == UART_MCR then
+        return self.MCR
+    elseif offset == UART_IIR then
+        ret = self.IIR -- the two top bits are always set
+        return ret
+    elseif offset == UART_LCR then
+        return self.LCR
+    elseif offset == UART_LSR then
+        if uart_fifoHasData(self.fifo) then
+            self.LSR = bor(self.LSR ,UART_LSR_DATA_READY)
+        else
+            self.LSR = band(self.LSR, bnot(UART_LSR_DATA_READY))
+        end
+        return self.LSR;
+    elseif offset == UART_SCR then
+        return self.SCR
+    else
+        --print("Error in uart ReadRegister: offset not supported);
+        return 0
+    end
+end
+
+function Serial:writeb(offset, x)
+    
+    x = band(0xff,x)
+    local offset = band(offset,7)
+    
+    if band(self.LCR , UART_LCR_DLAB) > 0 then
+        if offset == UART_DLL then
+            self.DLL = x
+            return
+        elseif offset == UART_DLH then
+            self.DLH = x
+            return
+        end
+    end
+
+    if offset == 0 then
+        self.LSR = band(self.LSR, bnot(UART_LSR_FIFO_EMPTY))
+        if band(self.MCR , 16) > 0 then -- LOOPBACK 
+            uart_RecieveChar(self.fifo,x)
+        else
+            io.write(string.char(x))
+            io.flush()
+        end
+        -- Data is sent with a latency of zero!
+        self.LSR = bor(self.LSR, UART_LSR_FIFO_EMPTY) -- send buffer is empty                   
+        self:updateIrq()
+        return
+    elseif offset == UART_IER then
+        -- 2 = 10b ,5=101b, 7=111b
+        self.IER = band(x , 0x0F) -- only the first four bits are valid
+        -- Ok, check immediately if there is a interrupt pending
+        self:updateIrq()
+    elseif offset == UART_FCR then
+        self.FCR = x
+        if band(self.FCR , 2) > 0  then
+            uart_fifoClear(self.fifo)
+        end
+    elseif offset == UART_LCR then
+        self.LCR = x
+    elseif offset == UART_MCR then
+        self.MCR = x
+    elseif offset == UART_SCR then
+        self.SCR = x
+    else
+        -- printf"Error in uart WriteRegister: offset not supported")
+    end
+end
+
+-- END Uart
+
 --CP0 flags
 local CP0St_CU3 = 31
 local CP0St_CU2 = 30
