@@ -205,8 +205,6 @@ function karatsuba(a,b,signed)
 end
 
 
-
-
 -- START Uart code i.e. the terminal input and output to the machine
 
 -- -------------------------------------------------
@@ -291,8 +289,6 @@ end
 
 -- end Fifo code
 
-
-
 Serial = {}
 Serial.__index = Serial
 
@@ -314,8 +310,6 @@ end
 function Serial:write(offset,v)
 
 end
-
-
 
 function Serial:reset()
     self.LCR = 3;
@@ -515,6 +509,8 @@ function Mips.Create(size)
     mips.lo = 0
     mips.regs = {}
 	mips.devices = {}
+
+    mips.exceptionWasNoMatch = false
 
     mips.llbit = 0
     mips.CP0_Index = 0
@@ -721,31 +717,121 @@ function Mips:write(addr,val)
 end
 
 
+function Mips:getExceptionCode()
+    return band(rshift(self.CP0_Cause , 2) , 0x1f)
+end
+
+function Mips:setExceptionCode(code) 
+    self.CP0_Cause = band(self.CP0_Cause, bnot(0x7c)) -- clear exccode
+    self.CP0_Cause = bor(self.CP0_Cause, lshift(band(code , 0x1f) , 2)) -- set with new code
+end
+
+
+function Mips:isKernelMode()
+    
+    if  band(self.CP0_Status , lshift(1 , CP0St_UM)) == 0 then
+        return true
+    end
+    return band(self.CP0_Status , bor(lshift(1 , CP0St_EXL) , lshift(1 , CP0St_ERL))) > 0
+end
+
+
 function Mips:handleException(delaySlot)
-    print "XXX Exception"
-    return
+    local offset
+    local exccode = self:getExceptionCode()
+        
+    self.inDelaySlot = true
+    
+    if  band(self.CP0_Status , lshift(1, CP0St_EXL)) == 0 then
+        if self.inDelaySlot then
+            self.CP0_Epc = self.pc - 4
+            self.CP0_Cause = bor(self.CP0_Cause, 0x80000000) -- set BD
+        else 
+            self.CP0_Epc = self.pc
+            self.CP0_Cause = band(self.CP0_Cause, 0x7fffffff) -- clear BD
+        end
+        
+        if exccode == EXC_TLBL or exccode == EXC_TLBS then
+            -- XXX this seems inverted? bug in also qemu? test with these cases reversed after booting.
+            if not self.tlb.exceptionWasNoMatch  then
+                offset = 0x180
+            else 
+                offset = 0
+            end
+        elseif  (exccode == EXC_Int) and (band(self.CP0_Cause , 0x800000) ~= 0) then
+            offset = 0x200
+        else
+            offset = 0x180
+        end
+    else
+        offset = 0x180
+    end
+    
+    -- Faulting coprocessor number set at fault location
+    -- exccode set at fault location
+    self.CP0_Status = bor(CP0_Status, lshift(1,CP0St_EXL))
+    
+    if band(self.CP0_Status , lshift(1,CP0St_BEV)) > 0 then
+        self.pc = 0xbfc00200 + offset
+    else
+        self.pc = 0x80000000 + offset
+    end
+    self.exceptionOccured = false
 end
 
-function Mips:triggerException(code)
-    self.exccode = 12
-    self.exceptionOccured = true
+function Mips:handleInterrupts()
+    -- if interrupts disabled or ERL or EXL set
+    if band(self.CP0_Status , 1) == 0 or band(self.CP0_Status , 0x6)  then
+        return false -- interrupts disabled
+    end
+    
+    if (band(band(self.CP0_Cause , self.CP0_Status) ,  0xfc00) == 0) then
+        return false -- no pending interrupts
+    end
+    
+    self.waiting = false
+    self:setExceptionCode(EXC_Int)
+    self:handleException(self.inDelaySlot)
+    
+    return true
 end
 
-function Mips:clearExternalInterrupt(intnum)
+function Mips:triggerExternalInterrupt(intNum)
+    self.CP0_Cause = bor(self.CP0_Cause , lshift(band(lshift(1 , intNum) , 0x3f ), 10))
+end
 
+function Mips:clearExternalInterrupt(intNum)
+    self.CP0_Cause = band( self.CP0_Cause, bnot(lshift(band(lshift(1 , intNum) , 0x3f ), 10)))  
 end
 
 function Mips:step()
     
-    if self.interruptOccured then
-        --only handle hw interrupts outside of delay slot
-        if not self.inDelaySlot then
-            self:handleException(false)
-        end
+    self.CP0_Count = self.CP0_Count + 1 
+    -- /* timer code */
+    if self.CP0_Count == self.CP0_Compare then
+        -- but only do this if interrupts are enabled to save time.
+        self:triggerExternalInterrupt(5); -- 5 is the timer int :)
     end
     
-	local startInDelaySlot = self.inDelaySlot
-	local opcode = self:read(self.pc)
+    if(self:handleInterrupts()) then
+        return
+    end
+    
+    if self.waiting then
+        return
+    end
+
+
+    local startInDelaySlot = self.inDelaySlot
+    
+    local opcode = self:read(self.pc)
+    
+    
+    if self.exceptionOccured then -- instruction fetch failed
+        self:handleException(startInDelaySlot);
+        return
+    end
+    
     self:doop(opcode)
     self.regs[0] = 0
     
@@ -763,7 +849,6 @@ function Mips:step()
 	end
     
     self.pc = self.pc +4
-    
 end
 --------------------------------------------------------------------------------
 -- Opcode helper functions
@@ -859,11 +944,6 @@ end
 function Mips:op_add(op)
 	local v = (self:getRs(op) + self:getRt(op))
 	local r = v % 0x100000000
-	
-	if v ~= r then
-		self:triggerException(12)
-		return
-	end 
 	self:setRd(op,r)
 end
 
@@ -1437,4 +1517,33 @@ function Mips:op_mtc0(op)
     elseif regNum == 19 then
     end
 
+end
+
+
+function Mips:helper_writeTlbEntry(idx)
+    idx = band(idx, 0xf) -- only 16 entries must mask it off
+    tlbent = self.tlbEntries[idx]
+    tlbent.VPN2 = rshift(self.CP0_EntryHi, 13)
+    tlbent.ASID = band(self.CP0_EntryHi, 0xff)
+    tlbent.G = (self.CP0_EntryLo0 & self.CP0_EntryLo1) & 1
+    tlbent.V0 = (self.CP0_EntryLo0 & 2) > 0
+    tlbent.V1 = (self.CP0_EntryLo1 & 2) > 0
+    tlbent.D0 = (self.CP0_EntryLo0 & 4) > 0
+    tlbent.D1 = (self.CP0_EntryLo1 & 4) > 0
+    tlbent.C0 = (self.CP0_EntryLo0  >> 3) & 7
+    tlbent.C1 = (self.CP0_EntryLo1  >> 3) & 7
+    tlbent.PFN[0] = ((self.CP0_EntryLo0 >> 6) & 0xfffff) << 12
+    tlbent.PFN[1] = ((self.CP0_EntryLo1 >> 6) & 0xfffff) << 12
+}
+
+function mips:op_tlbwi(op) 
+    
+    local idx = self.CP0_Index
+    self:helper_writeTlbEntry(idx)
+    
+end
+
+function mips:op_tlbwr(op)
+    local idx = randomInRange(self.CP0_Wired,15);
+    self:helper_writeTlbEntry(idx)
 end
