@@ -1,4 +1,3 @@
-
 Mips = {}
 Mips.__index = Mips
 
@@ -1519,22 +1518,66 @@ function Mips:op_mtc0(op)
 
 end
 
+function Mips:op_ll(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+    local wordVal = self:read(addr)
+	if self.exceptionOccured then
+        return;
+    end
+    self.llbit = true
+	self:setRt(op,wordVal)
+end
+
+function Mips:op_sc(op)
+    local c = sext16(band(op,0x0000ffff))
+    local addr = (self:getRs(op)+c) % 0x100000000
+	
+	if self.llbit then
+	    self:write(addr,self:getRt(op))
+    	if self.exceptionOccured then
+            return
+        end
+	end
+	
+	if self.llbit then
+        self:setRt(op, 1)	    
+	else
+	    self:setRt(op, 0)
+	end
+	
+end
+
+function Mips:op_cache(op)
+
+end
+
+function Mips:op_pref(op)
+
+end
+
+function Mips:op_tne(op)
+	if self:getRs(op) ~= self:getRt(op) then
+		-- XXX
+		print("XXX unhandled trap!");
+	end
+end
 
 function Mips:helper_writeTlbEntry(idx)
     idx = band(idx, 0xf) -- only 16 entries must mask it off
     tlbent = self.tlbEntries[idx]
     tlbent.VPN2 = rshift(self.CP0_EntryHi, 13)
     tlbent.ASID = band(self.CP0_EntryHi, 0xff)
-    tlbent.G = (self.CP0_EntryLo0 & self.CP0_EntryLo1) & 1
-    tlbent.V0 = (self.CP0_EntryLo0 & 2) > 0
-    tlbent.V1 = (self.CP0_EntryLo1 & 2) > 0
-    tlbent.D0 = (self.CP0_EntryLo0 & 4) > 0
-    tlbent.D1 = (self.CP0_EntryLo1 & 4) > 0
-    tlbent.C0 = (self.CP0_EntryLo0  >> 3) & 7
-    tlbent.C1 = (self.CP0_EntryLo1  >> 3) & 7
-    tlbent.PFN[0] = ((self.CP0_EntryLo0 >> 6) & 0xfffff) << 12
-    tlbent.PFN[1] = ((self.CP0_EntryLo1 >> 6) & 0xfffff) << 12
-}
+    tlbent.G =  band(band(self.CP0_EntryLo0 , self.CP0_EntryLo1) , 1) > 0
+    tlbent.V0 = band(self.CP0_EntryLo0 , 2) > 0
+    tlbent.V1 = band(self.CP0_EntryLo1 , 2) > 0
+    tlbent.D0 = band(self.CP0_EntryLo0 , 4) > 0
+    tlbent.D1 = band(self.CP0_EntryLo1 , 4) > 0
+    tlbent.C0 = band(rshift(self.CP0_EntryLo0  , 3) , 7) > 0
+    tlbent.C1 = band(rshift(self.CP0_EntryLo1  , 3) , 7) > 0
+    tlbent.PFN[0] = lshift( band(rshift(self.CP0_EntryLo0 , 6) , 0xfffff) , 12)
+    tlbent.PFN[1] = lshift( band(rshift(self.CP0_EntryLo1 , 6) , 0xfffff) , 12)
+end
 
 function mips:op_tlbwi(op) 
     
