@@ -529,6 +529,25 @@ function Mips.Create(size)
     mips.CP0_Compare = 0
 
 
+    mips.tlbEntries = {}
+
+    for i = 0, 15 do
+        local tlbent = {}
+        tlbent.VPN2 = 0
+        tlbent.ASID = 0
+        tlbent.G =  false
+        tlbent.V0 = false
+        tlbent.V1 = false
+        tlbent.D0 = false
+        tlbent.D1 = false
+        tlbent.C0 = false
+        tlbent.C1 = false
+        tlbent.PFN = {}
+        tlbent.PFN[0] = 0
+        tlbent.PFN[1] = 0
+        mips.tlbEntries[i] = tlbent
+    end
+
 	for i = 0,31 do
 		mips.regs[i] = 0
 	end
@@ -768,7 +787,7 @@ function Mips:handleException(delaySlot)
     
     -- Faulting coprocessor number set at fault location
     -- exccode set at fault location
-    self.CP0_Status = bor(CP0_Status, lshift(1,CP0St_EXL))
+    self.CP0_Status = bor(self.CP0_Status, lshift(1,CP0St_EXL))
     
     if band(self.CP0_Status , lshift(1,CP0St_BEV)) > 0 then
         self.pc = 0xbfc00200 + offset
@@ -780,14 +799,13 @@ end
 
 function Mips:handleInterrupts()
     -- if interrupts disabled or ERL or EXL set
-    if band(self.CP0_Status , 1) == 0 or band(self.CP0_Status , 0x6)  then
+    if band(self.CP0_Status , 1) == 0 or band(self.CP0_Status , 0x6) ~= 0  then
         return false -- interrupts disabled
     end
     
-    if (band(band(self.CP0_Cause , self.CP0_Status) ,  0xfc00) == 0) then
+    if band(band(self.CP0_Cause , self.CP0_Status) ,  0xfc00) == 0 then
         return false -- no pending interrupts
     end
-    
     self.waiting = false
     self:setExceptionCode(EXC_Int)
     self:handleException(self.inDelaySlot)
@@ -805,14 +823,15 @@ end
 
 function Mips:step()
     
-    self.CP0_Count = self.CP0_Count + 1 
+    self.CP0_Count = (self.CP0_Count + 1) % 0x100000000
     -- /* timer code */
     if self.CP0_Count == self.CP0_Compare then
         -- but only do this if interrupts are enabled to save time.
         self:triggerExternalInterrupt(5); -- 5 is the timer int :)
     end
     
-    if(self:handleInterrupts()) then
+    if self:handleInterrupts() then
+        print "handled!"
         return
     end
     
@@ -1496,12 +1515,12 @@ function Mips:op_mtc0(op)
     elseif regNum == 6 then -- Wired
         self.CP0_Wired = band(rt , 0xf)
     elseif regNum == 9 then -- Count
-        self.CP0_Count = rt;
+        self.CP0_Count = rt
     elseif regNum == 10 then -- EntryHi
         self.CP0_EntryHi = band(rt , bnot(0x1f00))
     elseif regNum == 11 then -- Compare
         self:clearExternalInterrupt(5)
-        self.CP0_Compare = rt;
+        self.CP0_Compare = rt
     elseif regNum == 12 then -- Status
         local status_mask = 0x7d7cff17;
         self.CP0_Status =  bor(band(self.CP0_Status, bnot(status_mask)) , band(rt , status_mask))
@@ -1510,12 +1529,30 @@ function Mips:op_mtc0(op)
         local cause_mask = bor(bor(lshift(1 , 23) , lshift(1 , 22)) , lshift(3 , 8));
         self.CP0_Cause = bor(band(self.CP0_Cause , bnot(cause_mask) ) , band(rt , cause_mask))
     elseif regNum == 14 then --epc
-        self.CP0_Epc = rt;
+        self.CP0_Epc = rt
     elseif regNum == 16 then
     elseif regNum == 18 then
     elseif regNum == 19 then
     end
 
+end
+
+function  Mips:op_eret(op)
+    
+    if self.inDelaySlot then
+        return
+    end
+    
+    self.llbit = false
+    
+    if band(self.CP0_Status , 4) ~= 0 then -- ERL is set
+        self.CP0_Status = band(self.CP0_Status,bnot(4)) -- clear ERL;
+        self.pc = self.CP0_ErrorEpc
+    else
+        self.pc = self.CP0_Epc
+        self.CP0_Status = band(self.CP0_Status , bnot(2)) -- clear EXL;
+    end
+    self.pc = self.pc - 4 -- counteract typical pc += 4
 end
 
 function Mips:op_ll(op)
@@ -1579,14 +1616,12 @@ function Mips:helper_writeTlbEntry(idx)
     tlbent.PFN[1] = lshift( band(rshift(self.CP0_EntryLo1 , 6) , 0xfffff) , 12)
 end
 
-function mips:op_tlbwi(op) 
-    
+function Mips:op_tlbwi(op) 
     local idx = self.CP0_Index
     self:helper_writeTlbEntry(idx)
-    
 end
 
-function mips:op_tlbwr(op)
+function Mips:op_tlbwr(op)
     local idx = randomInRange(self.CP0_Wired,15);
     self:helper_writeTlbEntry(idx)
 end
