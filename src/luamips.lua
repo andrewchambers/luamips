@@ -487,11 +487,7 @@ local EXC_Ov     = 12
 local EXC_Tr     = 13
 local EXC_Watch  = 23
 local EXC_MCheck = 24
--- tlb lookup return codes
-local TLBRET_MATCH   = 0
-local TLBRET_NOMATCH = 1
-local TLBRET_DIRTY   = 2
-local TLBRET_INVALID = 3
+
 
 
 function Mips.Create(size)
@@ -509,7 +505,7 @@ function Mips.Create(size)
     mips.regs = {}
 	mips.devices = {}
 
-    mips.exceptionWasNoMatch = false
+    mips.tlbExceptionWasNoMatch = false
 
     mips.llbit = 0
     mips.CP0_Index = 0
@@ -518,7 +514,7 @@ function Mips.Create(size)
     mips.CP0_EntryLo1 = 0
     mips.CP0_Context = 0
     mips.CP0_Wired = 0
-    mips.CP0_Status = 0
+    mips.CP0_Status = 4 -- set erl
     mips.CP0_Epc = 0
     mips.CP0_BadVAddr = 0
     mips.CP0_ErrorEpc = 0
@@ -632,21 +628,84 @@ function Mips:matchDevice(addr)
 end
 
 
-function Mips:translateAddr(addr)	
-    if addr >= 0x80000000 and addr < 0xa0000000 then 
-    	return addr - 0x80000000
-    end
+function Mips:writeTlbExceptionExtraData(vaddr) 
+    self.CP0_BadVAddr = vaddr
+    self.CP0_Context = bor(band(self.CP0_Context, bnot(0x007fffff)) , band(rshift(vaddr, 9) , 0x007ffff0))
+    self.CP0_EntryHi = bor(band(self.CP0_EntryHi , 0xff) , band(vaddr , 0xffffe000))
+end
 
-    if addr >= 0xa0000000 and addr < 0xc0000000 then 
-    	return addr - 0xa0000000
-    end
 
-    return addr
+-- XXX currently hardcoded for 4k pages
+function Mips:tlb_lookup (vaddress, write)
+    local ASID = band(self.CP0_EntryHi, 0xFF)
+    local i
+    self.tlbExceptionWasNoMatch = false
+    
+    for i = 0, 15 do
+        local tlb_e = self.tlbEntries[i]
+        local tag = rshift(band(vaddress, 0xfffff000) , 13)
+        local VPN2 = tlb_e.VPN2
+        -- Check ASID, virtual page number & size 
+        if ((tlb_e.G or tlb_e.ASID == ASID) and VPN2 == tag) then
+            -- TLB match 
+            local n = band(rshift(vaddress , 12) , 1) > 0
+            -- Check access rights
+
+            if (not (n and tlb_e.V1 or tlb_e.V0)) then
+                self.exceptionOccured = true
+                self:setExceptionCode(write and EXC_TLBS or EXC_TLBL)
+                self:writeTlbExceptionExtraData(vaddress)
+                return -1
+            end
+            if (write == true or (n and tlb_e.D1 or tlb_e.D0)) then
+                return bor(tlb_e.PFN[n and 1 or 0] , band(vaddress , 0xfff))
+            end
+            self.exceptionOccured = true
+            self:setExceptionCode(EXC_Mod)
+            self:writeTlbExceptionExtraData(vaddress)
+            return -1
+        end
+    end
+    self.tlbExceptionWasNoMatch = true
+    self.exceptionOccured = true
+    self:setExceptionCode(write and EXC_TLBS or EXC_TLBL)
+    self:writeTlbExceptionExtraData(vaddress)
+    return -1
+end
+
+
+function Mips:translateAddr(vaddr,write)	
+    if vaddr <= 0x7FFFFFFF then
+        -- useg
+        if band(self.CP0_Status , lshift(1,CP0St_ERL)) ~= 0  then
+            return vaddr
+        else
+            return self:tlb_lookup(vaddr, write)
+        end
+    elseif  vaddr >= 0x80000000 and vaddr <= 0x9fffffff then
+        return vaddr - 0x80000000
+    elseif  vaddr >= 0xa0000000 and vaddr <= 0xbfffffff then
+        return vaddr - 0xa0000000
+    else 
+        -- kseg2 and 3
+        if self:isKernelMode() then
+            return self:tlb_lookup(vaddr, write)
+        else
+            print ("translate address unhandled exception!")
+            return vaddr
+        end
+    end
+    
 end
 
 function Mips:readb(addr)
 	
-	addr = self:translateAddr(addr)
+	addr = self:translateAddr(addr,false)
+
+    if addr < 0 then
+        return 0
+    end
+
 	local offset = addr % 4
 	local baseaddr = addr - offset	
 	
@@ -670,7 +729,10 @@ end
 function Mips:writeb(addr,val)
 	assert(0 <= val and val < 256)
 	
-	addr = self:translateAddr(addr)
+	addr = self:translateAddr(addr,true)
+    if addr < 0 then
+        return
+    end
 	local offset = addr % 4
 	local baseaddr = addr - offset
 	
@@ -698,8 +760,10 @@ function Mips:read(addr)
 		error("reading unaligned address")
 	end
 	
-	addr = self:translateAddr(addr)
-	
+	addr = self:translateAddr(addr,false)
+	if addr < 0 then
+        return 0
+    end
 	local deventry = self:matchDevice(addr)
 	if deventry ~= nil then
 		return deventry.device:read(addr - deventry.base)
@@ -717,8 +781,10 @@ function Mips:write(addr,val)
         self:dumpState()
 		error("writing unaligned address " .. string.format("%08x",addr))
 	end
-	addr = self:translateAddr(addr)
-	
+	addr = self:translateAddr(addr,true)
+    if addr < 0 then
+        return 
+    end
 	local deventry = self:matchDevice(addr)
 	if deventry ~= nil then
 		deventry.device:writeb(addr - deventry.base,val)
@@ -761,7 +827,7 @@ function Mips:handleException(delaySlot)
     self.inDelaySlot = true
     
     if  band(self.CP0_Status , lshift(1, CP0St_EXL)) == 0 then
-        if self.inDelaySlot then
+        if delaySlot then
             self.CP0_Epc = self.pc - 4
             self.CP0_Cause = bor(self.CP0_Cause, 0x80000000) -- set BD
         else 
@@ -771,7 +837,7 @@ function Mips:handleException(delaySlot)
         
         if exccode == EXC_TLBL or exccode == EXC_TLBS then
             -- XXX this seems inverted? bug in also qemu? test with these cases reversed after booting.
-            if not self.tlb.exceptionWasNoMatch  then
+            if not self.tlbExceptionWasNoMatch  then
                 offset = 0x180
             else 
                 offset = 0
@@ -789,7 +855,7 @@ function Mips:handleException(delaySlot)
     -- exccode set at fault location
     self.CP0_Status = bor(self.CP0_Status, lshift(1,CP0St_EXL))
     
-    if band(self.CP0_Status , lshift(1,CP0St_BEV)) > 0 then
+    if band(self.CP0_Status , lshift(1,CP0St_BEV)) ~= 0 then
         self.pc = 0xbfc00200 + offset
     else
         self.pc = 0x80000000 + offset
@@ -822,7 +888,6 @@ function Mips:clearExternalInterrupt(intNum)
 end
 
 function Mips:step()
-    
     self.CP0_Count = (self.CP0_Count + 1) % 0x100000000
     -- /* timer code */
     if self.CP0_Count == self.CP0_Compare then
@@ -831,7 +896,6 @@ function Mips:step()
     end
     
     if self:handleInterrupts() then
-        print "handled!"
         return
     end
     
@@ -839,11 +903,9 @@ function Mips:step()
         return
     end
 
-
     local startInDelaySlot = self.inDelaySlot
     
     local opcode = self:read(self.pc)
-    
     
     if self.exceptionOccured then -- instruction fetch failed
         self:handleException(startInDelaySlot);
@@ -866,7 +928,7 @@ function Mips:step()
 	    return
 	end
     
-    self.pc = self.pc +4
+    self.pc = (self.pc + 4) % 0x100000000
 end
 --------------------------------------------------------------------------------
 -- Opcode helper functions
