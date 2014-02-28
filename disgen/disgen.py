@@ -61,11 +61,20 @@ def opstringToMask(opstring):
             andMask += "0"
     return andMask
 
+
+def getCounts(col):
+    ret = {}
+    for x in col:
+        if x not in ret:
+            ret[x] = 0
+        else:
+            ret[x] += 1
+    return ret
+
 def findBestAndMask(input):
     opstrings = map(lambda x : x[1],input)
     andMasks = map(opstringToMask,opstrings)
-    import collections
-    counts = collections.Counter(andMasks)
+    counts = getCounts(andMasks)
     andMask = max(counts,key=lambda x : counts[x])
     return andMask
     

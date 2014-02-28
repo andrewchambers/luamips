@@ -241,26 +241,63 @@ function updateTrace(t,emu)
     t.file:flush()
 end
 
+
+function printstate(emu)
+    local i
+    io.stderr:write("State:\n")
+    for i = 0 , 31 do
+        io.stderr:write(string.format("gr%d: %08x\n",i,emu.regs[i]))
+    end
+    
+    function PRFIELD(X)
+        io.stderr:write(X .. string.format(": %08x\n",emu[X]))
+    end 
+    PRFIELD("hi")
+    PRFIELD("lo")
+    PRFIELD("pc")
+    PRFIELD("delaypc")
+    PRFIELD("CP0_Index")
+    PRFIELD("CP0_EntryHi")
+    PRFIELD("CP0_EntryLo0")
+    PRFIELD("CP0_EntryLo1")
+    PRFIELD("CP0_Context")
+    PRFIELD("CP0_Wired")
+    PRFIELD("CP0_Status")
+    PRFIELD("CP0_Epc")
+    PRFIELD("CP0_BadVAddr")
+    PRFIELD("CP0_ErrorEpc")
+    PRFIELD("CP0_Cause")
+    PRFIELD("CP0_PageMask")
+    PRFIELD("CP0_Count")
+    PRFIELD("CP0_Compare")
+    
+end
+
 function main()
-	io.stderr:write("running tests\n")
+	io.stdout:write("running tests\n")
 	test()
-	io.stderr:write("loading srec\n")
+	io.stdout:write("loading srec\n")
 	local emu = Mips.Create(1024*1024*64)
 	emu:addDevice(0x140003f8,8,Serial.Create())
 	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
     emu:addDevice(0x1fbf0004,4,PowerControl.Create(emu))
-
 	loadSrec(emu,arg[1])
 	local trace = nil 
 	if #arg == 2 then
         trace = startTrace(arg[2])
 	end
-	io.stderr:write("launching emulator...\n")
+	io.stdout:write("launching emulator...\n")
+	local nsteps = 0
 	while true do
 		if trace ~= nil then
 		    updateTrace(trace,emu)
 		end
+		printstate(emu)
 		emu:step()
+		nsteps = nsteps + 1
+		if nsteps >= 400000000 then
+		    break
+		end
 	    --if emu.pc >= 0x800078c4 and emu.pc <= 0x80007914 then
 		--    print(string.format("%08x",emu.pc))
 		--    print(string.format("  %08x",emu:read(0x800094a0)))

@@ -5,7 +5,7 @@ local SLOW_BITOPS = false
 local SLOW_ASSERTIONS = true
 
 if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
-    io.stderr:write("using fast bitops\n")
+    io.stdout:write("using fast bitops\n")
     function make_positive(v)
         return bit.band(v,0x7fffffff) + 0x80000000
     end
@@ -58,7 +58,7 @@ if bit ~= nil and bit.bor ~= nil and SLOW_BITOPS ~= true then -- luajit
     end
 
 else -- we dont have the luajit bit library
-    io.stderr:write("using slow bitops\n")
+    io.stdout:write("using slow bitops\n")
     
     function band(a,b)
 	    local val = 0
@@ -824,7 +824,7 @@ function Mips:handleException(delaySlot)
     local offset
     local exccode = self:getExceptionCode()
         
-    self.inDelaySlot = true
+    self.inDelaySlot = false
     
     if  band(self.CP0_Status , lshift(1, CP0St_EXL)) == 0 then
         if delaySlot then
@@ -916,7 +916,8 @@ function Mips:step()
     self.regs[0] = 0
     
     if self.exceptionOccured then
-        self:handleException(startInDelaySlot)    
+        self:handleException(startInDelaySlot)
+        return    
     end
     
     if SLOW_ASSERTIONS then
@@ -1508,6 +1509,15 @@ function Mips:op_mflo(op)
     self:setRd(op,self.lo)
 end
 
+function Mips:op_mthi(op)
+    self.hi = self:getRs(op)
+end
+
+function Mips:op_mtlo(op)
+    self.lo = self:getRs(op)
+end
+
+
 function Mips:op_mfc0(op)
     local regNum = rshift(band(op, 0xf800), 11)
     local sel = band(op, 7)
@@ -1561,7 +1571,7 @@ function Mips:op_mtc0(op)
     local sel = band(op, 7)
 
     if regNum == 0 then -- Index
-        self.CP0_Index = bor(band(self.CP0_Index, 0x80000000 ), bor(rt , 0xf))
+        self.CP0_Index = bor(band(self.CP0_Index, 0x80000000 ), band(rt , 0xf))
     elseif regNum == 2 then -- EntryLo0
         self.CP0_EntryLo0 = band(rt , 0x3ffffff)
     elseif regNum == 3 then -- EntryLo1
