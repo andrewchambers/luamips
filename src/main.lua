@@ -242,9 +242,9 @@ function updateTrace(t,emu)
 end
 
 
-function printstate(emu)
+function printstate(emu, n)
     local i
-    io.stderr:write("State:\n")
+    io.stderr:write(string.format("State: %d\n",n))
     for i = 0 , 31 do
         io.stderr:write(string.format("gr%d: %08x\n",i,emu.regs[i]))
     end
@@ -282,30 +282,17 @@ function main()
 	emu:addDevice(0x10000004,4,MemoryInfo.Create(emu))
     emu:addDevice(0x1fbf0004,4,PowerControl.Create(emu))
 	loadSrec(emu,arg[1])
-	local trace = nil 
-	if #arg == 2 then
-        trace = startTrace(arg[2])
-	end
 	io.stdout:write("launching emulator...\n")
 	local nsteps = 0
 	while true do
-		if trace ~= nil then
-		    updateTrace(trace,emu)
-		end
-		printstate(emu)
+        if nsteps > 441320000 then
+		  printstate(emu,nsteps)
+        end
 		emu:step()
 		nsteps = nsteps + 1
-		if nsteps >= 400000000 then
+		if nsteps >= 450000000 then
 		    break
 		end
-	    --if emu.pc >= 0x800078c4 and emu.pc <= 0x80007914 then
-		--    print(string.format("%08x",emu.pc))
-		--    print(string.format("  %08x",emu:read(0x800094a0)))
-		--    print(string.format("  %08x",emu:read(0x800094a4)))
-		--    print(string.format("  %08x",emu:read(0x800094a8)))
-		--    emu:dumpState()
-		--    io.read()
-		--end
 	end
 end
 

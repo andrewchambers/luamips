@@ -112,7 +112,6 @@ else -- we dont have the luajit bit library
     
 end
 
-
 function bnot(a)
 	return 0xffffffff - a
 end
@@ -201,6 +200,12 @@ function karatsuba(a,b,signed)
     end
     
     return hi,lo
+end
+
+counter = 0 -- dumb random for testing
+function randomInRange(a,b)
+    counter = counter + 1
+    return a + (  counter % (1 + b - a) )
 end
 
 
@@ -628,7 +633,7 @@ function Mips:matchDevice(addr)
 end
 
 
-function Mips:writeTlbExceptionExtraData(vaddr) 
+function Mips:writeTlbExceptionExtraData(vaddr)
     self.CP0_BadVAddr = vaddr
     self.CP0_Context = bor(band(self.CP0_Context, bnot(0x007fffff)) , band(rshift(vaddr, 9) , 0x007ffff0))
     self.CP0_EntryHi = bor(band(self.CP0_EntryHi , 0xff) , band(vaddr , 0xffffe000))
@@ -1040,6 +1045,9 @@ function Mips:op_sh(op)
 	local vlo = band(self:getRt(op),0xff)
 	local vhi = rshift(band(self:getRt(op),0xff00),8)
 	self:writeb(addr,vhi)
+    if self.exceptionOccured then
+        return
+    end
 	self:writeb(addr+1,vlo)
 end
 
@@ -1048,6 +1056,9 @@ function Mips:op_lwl(op)
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
     local wordVal = self:read(addr - (addr % 4))
+    if self.exceptionOccured then
+        return
+    end
     local offset = addr % 4
     local result
 
@@ -1075,6 +1086,9 @@ function Mips:op_swl(op)
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
     local wordVal = self:read(addr - (addr % 4))
+    if self.exceptionOccured then
+        return
+    end
     local offset = addr % 4
     local result
 
@@ -1105,6 +1119,9 @@ function Mips:op_lwr(op)
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
     local wordVal = self:read(addr - (addr % 4))
+    if self.exceptionOccured then
+        return
+    end
     local offset = addr % 4
     local result
 
@@ -1132,6 +1149,9 @@ function Mips:op_swr(op)
     local addr = (self:getRs(op)+c) % 0x100000000
     local rtVal = self:getRt(op)
     local wordVal = self:read(addr - (addr % 4))
+    if self.exceptionOccured then
+        return
+    end
     local offset = addr % 4
     local result
 
@@ -1157,13 +1177,22 @@ end
 function Mips:op_lw(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:read(addr)
-	self:setRt(op,v)
+    if self.exceptionOccured then
+        return
+    end
+    self:setRt(op,v)
 end
 
 function Mips:op_lhu(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local vlo = self:readb(addr+1)
+    if self.exceptionOccured then
+        return
+    end
 	local vhi = self:readb(addr)
+    if self.exceptionOccured then
+        return
+    end
 	local v = bor(lshift(vhi,8),vlo)
 	self:setRt(op,v)
 end
@@ -1171,7 +1200,13 @@ end
 function Mips:op_lh(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local vlo = self:readb(addr+1)
+    if self.exceptionOccured then
+        return
+    end
 	local vhi = self:readb(addr)
+    if self.exceptionOccured then
+        return
+    end
 	local v = sext16(bor(lshift(vhi,8),vlo))
 	self:setRt(op,v)
 end
@@ -1179,6 +1214,9 @@ end
 function Mips:op_lb(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:readb(addr)
+    if self.exceptionOccured then
+        return
+    end
 	v = sext8(v)
 	self:setRt(op,v)
 end
@@ -1186,6 +1224,9 @@ end
 function Mips:op_lbu(op)
 	local addr = (self:getRs(op) + sext16(self:getImm(op))) % 0x100000000
 	local v = self:readb(addr)
+    if self.exceptionOccured then
+        return
+    end
 	self:setRt(op,v)
 end
 
@@ -1696,4 +1737,26 @@ end
 function Mips:op_tlbwr(op)
     local idx = randomInRange(self.CP0_Wired,15);
     self:helper_writeTlbEntry(idx)
+end
+
+
+-- XXX hardcoded for 4k pages
+function Mips:op_tlbp(op)
+    
+    local ASID = band(self.CP0_EntryHi, 0xFF)
+    local i
+    
+    self.CP0_Index = 0x80000000
+    
+    for i = 0,15 do
+        local tlb_e = self.tlbEntries[i]
+        local tag = rshift(band(self.CP0_EntryHi , 0xfffff000), 13)
+        local VPN2 = tlb_e.VPN2
+        -- Check ASID, virtual page number & size 
+        if ((tlb_e.G  or tlb_e.ASID == ASID) and VPN2 == tag) then
+            -- TLB match
+            self.CP0_Index = i
+            return
+        end
+    end
 end
